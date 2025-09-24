@@ -2,10 +2,13 @@
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import BaseSettings, Field
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
     environment: str = Field("development", env="ENVIRONMENT")
     nextflow_namespace: str = Field("nextflow", env="NEXTFLOW_NAMESPACE")
     nextflow_service_account: str = Field("nextflow-runner", env="NEXTFLOW_SERVICE_ACCOUNT")
@@ -19,10 +22,6 @@ class Settings(BaseSettings):
     redis_url: Optional[str] = Field(None, env="REDIS_URL")
     kube_context: Optional[str] = Field(None, env="KUBE_CONTEXT")
     allowed_origins: list[str] = Field(default_factory=lambda: ["*"])
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
 
 @lru_cache()

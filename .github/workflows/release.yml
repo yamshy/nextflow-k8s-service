@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          allow-prerelease: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --group dev --group release
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Semantic Release
+        id: semantic_release
+        uses: python-semantic-release/python-semantic-release@v9
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        if: steps.semantic_release.outputs.released == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image name
+        if: steps.semantic_release.outputs.released == 'true'
+        id: image
+        run: |
+          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push container image
+        if: steps.semantic_release.outputs.released == 'true'
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          VERSION: ${{ steps.semantic_release.outputs.version }}
+        run: |
+          docker build -t "$IMAGE_NAME:$VERSION" -f nextflow-api/Dockerfile .
+          docker tag "$IMAGE_NAME:$VERSION" "$IMAGE_NAME:latest"
+          docker push "$IMAGE_NAME:$VERSION"
+          docker push "$IMAGE_NAME:latest"

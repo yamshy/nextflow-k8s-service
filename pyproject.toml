@@ -12,6 +12,7 @@ dependencies = [
     "slowapi>=0.1.8",
     "websockets>=12.0",
     "python-dotenv>=1.0.1",
+    "pydantic-settings>=2.10.1",
 ]
 
 [build-system]
@@ -20,3 +21,25 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["nextflow-api"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.semantic_release]
+version_toml = "pyproject.toml:project.version"
+branch = "main"
+commit_parser = "angular"
+changelog_file = "CHANGELOG.md"
+build_command = ""
+upload_to_repository = false
+upload_to_release = true
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "pytest-mock>=3.15.1",
+]
+release = [
+    "python-semantic-release>=9.4",
+]
