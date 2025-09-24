@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nextflow-config
+  namespace: nextflow
+  labels:
+    app: nextflow-api
+data:
+  nextflow.config: |
+    tower {
+      enabled = false
+    }
+    process {
+      executor = 'k8s'
+      pod = [
+        [ 'nodeSelector', [ 'kubernetes.io/os': 'linux' ] ],
+        [ 'serviceAccountName', 'nextflow-runner' ],
+      ]
+      withName: '*' {
+        resourceLimits = [ cpu: '1000m', memory: '1Gi' ]
+      }
+    }
+    kubernetes {
+      namespace = 'nextflow'
+    }
