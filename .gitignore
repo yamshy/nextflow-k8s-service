@@ -1,0 +1,30 @@
+# General
+.DS_Store
+.idea/
+.vscode/
+
+# Virtual environments
+.venv/
+venv/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.tox/
+.nox/
+htmlcov/
+.uv/
+
+# Coverage
+.coverage
+coverage.xml
+
+# Environment files
+.env
+*.env

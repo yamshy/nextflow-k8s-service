@@ -21,24 +21,23 @@ app/
   utils/broadcaster.py    WebSocket fan-out primitive
 examples/simple-pipeline/ Minimal Nextflow workflow for testing
 k8s-manifests/            Deployment, service, ConfigMap, RBAC specs
-Dockerfile                Container build definition
-requirements.txt          Python dependencies
+Dockerfile                Container build definition (uses uv)
 .env.example              Sample configuration values
 ```
 
 ## Getting Started
 1. **Install dependencies**
+   From the repository root run:
    ```bash
-   python -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
+   uv sync
    ```
+   This creates `.venv/` (ignored by git) with all runtime requirements and links `nextflow-api` for imports.
 2. **Configure environment**
    - Copy `.env.example` to `.env` and update namespace, Redis, and image values.
    - Ensure the Kubernetes context referenced by `KUBE_CONTEXT` has permissions to manage Jobs/Pods.
 3. **Run locally**
    ```bash
-   uvicorn app.main:app --reload --port 8000
+   uv run --directory nextflow-api uvicorn app.main:app --reload --port 8000
    ```
 4. **Access API**
    - Open `http://localhost:8000/docs` for interactive OpenAPI docs.
@@ -56,9 +55,9 @@ requirements.txt          Python dependencies
 | GET    | `/healthz`                   | Service health probe |
 
 ## Kubernetes Deployment
-1. Build and push the service image:
+1. Build and push the service image (context is repo root):
    ```bash
-   docker build -t <registry>/nextflow-api:latest .
+   docker build -f nextflow-api/Dockerfile -t <registry>/nextflow-api:latest .
    docker push <registry>/nextflow-api:latest
    ```
 2. Update the image reference in `k8s-manifests/deployment.yaml` and the ConfigMap values as needed.
@@ -83,4 +82,3 @@ requirements.txt          Python dependencies
 4. **Persistent State Backend** – Promote Redis (or alternative store) to mandatory with high availability and persistence for multi-instance deployments.
 5. **Pipeline Parameter Validation** – Introduce schema-driven validation against a catalog of supported Nextflow pipelines to prevent misconfigured runs.
 6. **CI/CD Automation** – Configure build pipelines that lint, test, and deploy both the API service and associated Kubernetes assets.
-
