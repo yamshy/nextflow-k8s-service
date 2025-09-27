@@ -26,7 +26,7 @@ where = ["nextflow-api"]
 asyncio_mode = "auto"
 
 [tool.semantic_release]
-version_toml = [["pyproject.toml", "project.version"]]
+version_toml = "pyproject.toml:project.version"
 branch = "main"
 commit_parser = "conventional"
 changelog_file = "CHANGELOG.md"
