@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: nextflow-config
+  name: nextflow-k8s-service-config
   namespace: nextflow
   labels:
-    app: nextflow-api
+    app: nextflow-k8s-service
 data:
   nextflow.config: |
     tower {
