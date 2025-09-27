@@ -1,24 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nextflow-api
+  name: nextflow-k8s-service
   namespace: nextflow
   labels:
-    app: nextflow-api
+    app: nextflow-k8s-service
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: nextflow-api
+      app: nextflow-k8s-service
   template:
     metadata:
       labels:
-        app: nextflow-api
+        app: nextflow-k8s-service
     spec:
-      serviceAccountName: nextflow-api
+      serviceAccountName: nextflow-k8s-service
       containers:
-        - name: nextflow-api
-          image: ghcr.io/example/nextflow-api:latest
+        - name: nextflow-k8s-service
+          image: ghcr.io/example/nextflow-k8s-service:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -52,9 +52,9 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 30
           volumeMounts:
-            - name: nextflow-config
+            - name: nextflow-k8s-service-config
               mountPath: /opt/nextflow
       volumes:
-        - name: nextflow-config
+        - name: nextflow-k8s-service-config
           configMap:
-            name: nextflow-config
+            name: nextflow-k8s-service-config

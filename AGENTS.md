@@ -7,8 +7,8 @@ changes—future tasks may depend on the conventions described here.
 - **Language & Runtime**: Python 3.13 (see `.python-version`). Runtime deps are managed with [`uv`](https://github.com/astral-sh/uv).
 - **Entrypoints**:
   - `main.py` (repo root) starts the FastAPI app via uvicorn for local dev.
-  - `nextflow-api/app/main.py` constructs the FastAPI application, sets up lifespan hooks, middleware, and routers.
-- **Core packages** live under `nextflow-api/app/`:
+  - `nextflow_k8s_service/app/main.py` constructs the FastAPI application, sets up lifespan hooks, middleware, and routers.
+- **Core packages** live under `nextflow_k8s_service/app/`:
   - `api/` – REST (`routes.py`) and WebSocket (`websocket.py`) routers.
   - `config.py` – `pydantic-settings` configuration model.
   - `models.py` – Pydantic request/response/log schemas.
@@ -20,11 +20,11 @@ changes—future tasks may depend on the conventions described here.
 ## Development Workflow
 1. **Install deps** with `uv sync` (include `--group dev` for test-only packages).
 2. **Run tests** using `uv run pytest` from the repo root. Tests rely on `pytest`, `pytest-asyncio`, and `pytest-mock`.
-3. **Start the API locally** with `uv run uvicorn app.main:app --reload --port 8000 --app-dir nextflow-api` (or run `python main.py`).
+3. **Start the API locally** with `uv run uvicorn app.main:app --reload --port 8000 --app-dir nextflow_k8s_service` (or run `python main.py`).
 4. **Kubernetes access**: runtime helpers use the Python Kubernetes client. Blocking calls are wrapped with `asyncio.to_thread`; match this pattern when adding new Kubernetes operations.
 
 ## Code Style & Conventions
-- Use [PEP 484](https://www.python.org/dev/peps/pep-0484/) type hints everywhere. Most modules start with `from __future__ import annotations`; new files in `nextflow-api/app/` should follow suit.
+- Use [PEP 484](https://www.python.org/dev/peps/pep-0484/) type hints everywhere. Most modules start with `from __future__ import annotations`; new files in `nextflow_k8s_service/app/` should follow suit.
 - Favor `async`/`await` for IO-bound workflows. Coordinate background work with `asyncio.create_task`, `asyncio.Lock`, and `asyncio.Event` as done in existing services.
 - Log via the `logging` module (see `app/main.py`, `services/`, and `kubernetes/` modules for patterns). Avoid `print`.
 - When extending the API, use FastAPI dependency injection (`Depends`) and the existing `PipelineManager`/`StateStore` accessors.
@@ -40,7 +40,7 @@ changes—future tasks may depend on the conventions described here.
 ## Testing Guidance
 - Existing tests focus on state management, orchestration, and log parsing. Add or update tests alongside functional changes.
 - Use `pytest.mark.asyncio` for async tests and `pytest-mock`'s `mocker` fixture for patching async methods (`AsyncMock`).
-- Keep test imports relative to the FastAPI package (thanks to `tests/conftest.py` adding `nextflow-api` to `sys.path`).
+- Keep test imports relative to the FastAPI package (thanks to `tests/conftest.py` adding `nextflow_k8s_service` to `sys.path`).
 
 ## Dependency Management
 - Add runtime dependencies in `pyproject.toml` under `[project.dependencies]` and re-run `uv sync` to refresh `uv.lock`.
@@ -48,7 +48,7 @@ changes—future tasks may depend on the conventions described here.
 - Never hand-edit `uv.lock`; let `uv` regenerate it.
 
 ## Docs & Operational Assets
-- Update `README.md` (root and `nextflow-api/README.md`) if you introduce new commands, environment variables, or deployment changes.
+- Update `README.md` (root and `nextflow_k8s_service/README.md`) if you introduce new commands, environment variables, or deployment changes.
 - Deployment YAML in `k8s-manifests/` should reflect any new config knobs or container images.
 
 ## Pull Request Expectations

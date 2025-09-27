@@ -31,13 +31,13 @@ Dockerfile                Container build definition (uses uv)
    ```bash
    uv sync
    ```
-   This creates `.venv/` (ignored by git) with all runtime requirements and links `nextflow-api` for imports.
+   This creates `.venv/` (ignored by git) with all runtime requirements and links `nextflow_k8s_service` for imports.
 2. **Configure environment**
    - Copy `.env.example` to `.env` and update namespace, Redis, and image values.
    - Ensure the Kubernetes context referenced by `KUBE_CONTEXT` has permissions to manage Jobs/Pods.
 3. **Run locally**
    ```bash
-   uv run --directory nextflow-api uvicorn app.main:app --reload --port 8000
+   uv run --directory nextflow_k8s_service uvicorn app.main:app --reload --port 8000
    ```
 4. **Access API**
    - Open `http://localhost:8000/docs` for interactive OpenAPI docs.
@@ -57,8 +57,8 @@ Dockerfile                Container build definition (uses uv)
 ## Kubernetes Deployment
 1. Build and push the service image (context is repo root):
    ```bash
-   docker build -f nextflow-api/Dockerfile -t <registry>/nextflow-api:latest .
-   docker push <registry>/nextflow-api:latest
+   docker build -f nextflow_k8s_service/Dockerfile -t <registry>/nextflow-k8s-service:latest .
+   docker push <registry>/nextflow-k8s-service:latest
    ```
 2. Update the image reference in `k8s-manifests/deployment.yaml` and the ConfigMap values as needed.
 3. Apply manifests:

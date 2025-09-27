@@ -1,6 +1,6 @@
 # Nextflow K8s Service
 
-This repository houses a FastAPI microservice for managing single-instance Nextflow pipeline runs on Kubernetes. The full service documentation lives in `nextflow-api/README.md`.
+This repository houses a FastAPI microservice for managing single-instance Nextflow pipeline runs on Kubernetes. The full service documentation lives in `nextflow_k8s_service/README.md`.
 
 ## Development Setup
 1. Install Python 3.13 (see `.python-version`).
@@ -10,7 +10,7 @@ This repository houses a FastAPI microservice for managing single-instance Nextf
    ```
 3. Run the API locally using uv:
    ```bash
-   uv run uvicorn app.main:app --reload --port 8000 --app-dir nextflow-api
+   uv run uvicorn app.main:app --reload --port 8000 --app-dir nextflow_k8s_service
    ```
 
 ## Testing
@@ -32,6 +32,6 @@ Follow Conventional Commits when merging to `main`; semantic-release determines 
 ## Project Layout
 - `pyproject.toml` – project metadata and dependencies managed by `uv`
 - `uv.lock` – resolved dependency lockfile (generated via `uv lock`)
-- `nextflow-api/` – FastAPI application, Kubernetes helpers, deployment manifests
+- `nextflow_k8s_service/` – FastAPI application, Kubernetes helpers, deployment manifests
 
-Refer to `nextflow-api/README.md` for usage, API reference, and operational notes.
+Refer to `nextflow_k8s_service/README.md` for usage, API reference, and operational notes.
