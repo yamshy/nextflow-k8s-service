@@ -63,6 +63,8 @@ def get_state_store(request: Request) -> StateStore:
 
 
 def create_app() -> FastAPI:
+    settings = get_settings()
+
     app = FastAPI(
         title="Nextflow Pipeline Controller",
         version="0.1.0",
@@ -78,7 +80,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
