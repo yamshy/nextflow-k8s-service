@@ -1,0 +1,20 @@
+.git
+.github
+.venv
+__pycache__
+*.py[cod]
+*.egg-info
+.env
+.env.*
+pytest.ini
+.pytest_cache
+.mypy_cache
+.nextflow-cache
+.DS_Store
+.idea
+.vscode
+*.log
+
+# Test and tooling directories
+/tests
+/examples
