@@ -26,9 +26,9 @@ where = ["nextflow-api"]
 asyncio_mode = "auto"
 
 [tool.semantic_release]
-version_toml = "pyproject.toml:project.version"
+version_toml = [["pyproject.toml", "project.version"]]
 branch = "main"
-commit_parser = "angular"
+commit_parser = "conventional"
 changelog_file = "CHANGELOG.md"
 build_command = ""
 upload_to_repository = false
