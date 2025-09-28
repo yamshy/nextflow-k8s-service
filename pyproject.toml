@@ -24,6 +24,12 @@ where = ["nextflow_k8s_service"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "integration: tests that interact with multiple service layers",
+    "contract: schema and manifest validation checks",
+    "smoke: lightweight post-deployment verification",
+    "kubernetes: tests that require a live Kubernetes cluster",
+]
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
@@ -39,7 +45,66 @@ dev = [
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
     "pytest-mock>=3.15.1",
+    "pytest-cov>=5.0.0",
+    "httpx[http2]>=0.27.0",
+    "requests>=2.32.3",
+    "anyio>=4.4.0",
+    "ruff>=0.6.8",
+    "black>=24.8.0",
+    "isort>=5.13.2",
+    "mypy>=1.11.2",
+    "bandit>=1.7.8",
+    "safety>=3.2.4",
+    "types-requests>=2.32.0.20240905",
 ]
 release = [
     "python-semantic-release>=9.4",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py313"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["nextflow_k8s_service"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["nextflow_k8s_service", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "B",
+    "I",
+    "UP",
+    "S",
+    "W",
+]
+ignore = ["S101"]
+
+[tool.mypy]
+python_version = "3.13"
+warn_unused_configs = true
+warn_unused_ignores = true
+warn_return_any = true
+strict_optional = true
+check_untyped_defs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.coverage.run]
+branch = true
+source = ["nextflow_k8s_service"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = [
+    "if __name__ == \"__main__\":",
+    "def create_app(",
 ]
