@@ -111,7 +111,6 @@ PY
           context: .
           file: Dockerfile
           push: true
-          load: true
           tags: |
             ${{ env.REGISTRY }}/nextflow-api:${{ steps.version.outputs.version }}
             ${{ env.REGISTRY }}/nextflow-api:${{ github.sha }}
@@ -149,8 +148,10 @@ PY
           version: v1.30.0
       - name: Install kubeconform
         run: |
+          mkdir -p "$HOME/.local/bin"
           curl -L https://github.com/yannh/kubeconform/releases/download/v0.6.5/kubeconform-linux-amd64.tar.gz | \
-            tar -C /usr/local/bin -xz kubeconform
+            tar -C "$HOME/.local/bin" -xz kubeconform
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Configure kubeconfig
         env:
           KUBECONFIG_FILE: ${{ secrets.KUBECONFIG_FILE }}
