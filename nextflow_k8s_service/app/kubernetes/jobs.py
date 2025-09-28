@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from kubernetes import client as k8s_client
 from kubernetes.client import ApiException
@@ -16,7 +16,7 @@ from .client import get_kubernetes_client
 logger = logging.getLogger(__name__)
 
 
-def _job_labels(run_id: str) -> Dict[str, str]:
+def _job_labels(run_id: str) -> dict[str, str]:
     return {
         "app": "nextflow-pipeline",
         "run-id": run_id,
