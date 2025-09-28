@@ -44,7 +44,12 @@ class PipelineManager:
     async def start_or_attach_run(self, request: RunRequest) -> RunResponse:
         active = await self._state_store.get_active_run()
         if active.active and active.run:
-            return RunResponse(run_id=active.run.run_id, status=active.run.status, attached=True, job_name=active.run.job_name)
+            return RunResponse(
+                run_id=active.run.run_id,
+                status=active.run.status,
+                attached=True,
+                job_name=active.run.job_name,
+            )
 
         run_id = uuid.uuid4().hex[:12]
         job_name = f"nextflow-run-{run_id}"
@@ -57,7 +62,12 @@ class PipelineManager:
         if not acquired:
             active = await self._state_store.get_active_run()
             if active.run:
-                return RunResponse(run_id=active.run.run_id, status=active.run.status, attached=True, job_name=active.run.job_name)
+                return RunResponse(
+                    run_id=active.run.run_id,
+                    status=active.run.status,
+                    attached=True,
+                    job_name=active.run.job_name,
+                )
             raise RuntimeError("Unable to acquire pipeline lock")
 
         await self._broadcast({
@@ -113,7 +123,11 @@ class PipelineManager:
         await self._log_streamer.stop(run_id)
         run_info = await self._state_store.finish_active_run(terminal_status)
         if terminal_status in {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.UNKNOWN}:
-            await jobs.delete_job(job_name, settings=self._settings, grace_period_seconds=self._settings.cleanup_grace_period_seconds)
+            await jobs.delete_job(
+                job_name,
+                settings=self._settings,
+                grace_period_seconds=self._settings.cleanup_grace_period_seconds,
+            )
 
         await self._broadcast({
             "type": "run_completed",
@@ -142,7 +156,12 @@ class PipelineManager:
             },
         })
 
-        return CancelResponse(run_id=active.run.run_id, status=info.status if info else RunStatus.CANCELLED, cancelled=True, detail=None)
+        return CancelResponse(
+            run_id=active.run.run_id,
+            status=info.status if info else RunStatus.CANCELLED,
+            cancelled=True,
+            detail=None,
+        )
 
     async def is_active(self) -> ActiveRunStatus:
         return await self._state_store.get_active_run()

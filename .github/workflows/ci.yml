@@ -6,8 +6,19 @@ on:
       - main
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_LINK_MODE: copy
+
 jobs:
-  tests:
+  lint:
+    name: Ruff
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -21,9 +32,40 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
+        with:
+          cache-dependency-path: |
+            pyproject.toml
+            uv.lock
 
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --group dev --frozen
+
+      - name: Run Ruff lint
+        run: uv run ruff check .
+
+  tests:
+    runs-on: ubuntu-latest
+    needs:
+      - lint
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          allow-prerelease: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          cache-dependency-path: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install dependencies
+        run: uv sync --group dev --frozen
 
       - name: Run tests
-        run: uv run pytest
+        run: uv run pytest --maxfail=1 --disable-warnings -q
