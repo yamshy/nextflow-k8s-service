@@ -14,9 +14,11 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
 
-RUN uv sync --no-dev --frozen
+RUN uv sync --no-dev --frozen --no-install-project
 
 COPY nextflow_k8s_service ./nextflow_k8s_service
+
+RUN uv sync --no-dev --frozen --install-project
 
 ENV PATH="/app/.venv/bin:$PATH"
 
