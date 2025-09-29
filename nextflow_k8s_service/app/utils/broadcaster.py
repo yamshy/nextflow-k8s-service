@@ -30,9 +30,15 @@ class Broadcaster:
         payload = json.dumps(message, default=str)
         async with self._lock:
             clients = list(self._clients)
-        for client in clients:
+        if not clients:
+            return
+
+        async def _send(client: WebSocket) -> None:
             try:
                 await client.send_text(payload)
             except Exception:  # pragma: no cover - ensure failure does not break others
                 logger.exception("Failed to send message to WebSocket %s", id(client))
                 await self.unregister(client)
+
+        for client in clients:
+            asyncio.create_task(_send(client))
