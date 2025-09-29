@@ -65,6 +65,7 @@ def _build_job_manifest(
         template=template,
         backoff_limit=settings.job_backoff_limit,
         active_deadline_seconds=settings.job_active_deadline_seconds,
+        ttl_seconds_after_finished=settings.job_ttl_seconds_after_finished,
     )
 
     return k8s_client.V1Job(api_version="batch/v1", kind="Job", metadata=metadata, spec=spec)

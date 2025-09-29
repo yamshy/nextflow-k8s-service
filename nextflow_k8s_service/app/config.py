@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     nextflow_image: str = Field(default="nextflow/nextflow:latest")
     job_active_deadline_seconds: int = Field(default=3600)
     job_backoff_limit: int = Field(default=0)
+    job_ttl_seconds_after_finished: int = Field(default=900)
     cleanup_grace_period_seconds: int = Field(default=300)
     log_fetch_interval_seconds: float = Field(default=2.0)
     run_history_limit: int = Field(default=20)
