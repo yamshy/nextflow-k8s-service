@@ -41,6 +41,7 @@ def _build_job_manifest(
     container = k8s_client.V1Container(
         name="nextflow",
         image=settings.nextflow_image,
+        command=["nextflow"],
         args=args,
         env=[
             k8s_client.V1EnvVar(name="NXF_WORK", value=params.workdir or "/workspace"),
