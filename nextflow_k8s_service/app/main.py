@@ -67,7 +67,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Nextflow Pipeline Controller",
-        version="0.1.0",
+        version="1.0.9",
         lifespan=lifespan,
     )
 

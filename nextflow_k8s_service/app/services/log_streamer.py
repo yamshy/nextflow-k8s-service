@@ -81,7 +81,7 @@ class LogStreamer:
                                 timestamp=effective_timestamp,
                                 message=message,
                             )
-                            await self._broadcaster.broadcast({"type": "log", "payload": chunk.dict()})
+                            await self._broadcaster.broadcast({"type": "log", "payload": chunk.model_dump()})
 
                 try:
                     await asyncio.wait_for(stop_event.wait(), timeout=self._settings.log_fetch_interval_seconds)

@@ -20,7 +20,7 @@ async def pipeline_stream(websocket: WebSocket) -> None:
     status = await manager.current_status()
     await websocket.send_json({
         "type": "initial_status",
-        "payload": status.dict(),
+        "payload": status.model_dump(),
     })
 
     try:
