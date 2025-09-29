@@ -142,25 +142,45 @@ class PipelineManager:
             self._tasks.pop(run_id, None)
 
     async def cancel_active_run(self) -> CancelResponse:
+        """Cancel the active run and return the resulting status.
+
+        The Kubernetes job deletion is attempted first; if it fails we still run
+        the shutdown sequence (stop log streaming, update state, broadcast the
+        cancellation) and report the failure back to the caller via the
+        ``detail`` field while marking ``cancelled`` as ``False``.
+        """
+
         active = await self._state_store.get_active_run()
         if not active.active or not active.run or not active.run.job_name:
             return CancelResponse(run_id=None, status=RunStatus.UNKNOWN, cancelled=False, detail="No active run")
 
-        await jobs.delete_job(active.run.job_name, settings=self._settings, grace_period_seconds=0)
-        await self._log_streamer.stop(active.run.run_id)
-        info = await self._state_store.cancel_active_run("Cancelled by user")
-        await self._broadcast({
-            "type": "run_cancelled",
-            "payload": {
-                "run_id": active.run.run_id,
-            },
-        })
+        deletion_error: Optional[Exception] = None
+        info: Optional[RunInfo] = None
+        try:
+            await jobs.delete_job(active.run.job_name, settings=self._settings, grace_period_seconds=0)
+        except Exception as exc:
+            deletion_error = exc
+            logger.exception("Failed to delete job %s during cancellation", active.run.job_name)
+        finally:
+            await self._log_streamer.stop(active.run.run_id)
+            info = await self._state_store.cancel_active_run("Cancelled by user")
+            await self._broadcast({
+                "type": "run_cancelled",
+                "payload": {
+                    "run_id": active.run.run_id,
+                },
+            })
+
+        detail = None
+        cancelled = deletion_error is None
+        if deletion_error is not None:
+            detail = f"Failed to delete Kubernetes job: {deletion_error}"
 
         return CancelResponse(
             run_id=active.run.run_id,
             status=info.status if info else RunStatus.CANCELLED,
-            cancelled=True,
-            detail=None,
+            cancelled=cancelled,
+            detail=detail,
         )
 
     async def is_active(self) -> ActiveRunStatus:
