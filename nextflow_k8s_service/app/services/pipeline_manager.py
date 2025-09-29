@@ -84,9 +84,37 @@ class PipelineManager:
             await self._state_store.finish_active_run(RunStatus.FAILED, message=str(exc))
             raise
 
+        job_metadata = getattr(job, "metadata", None)
+        job_name = getattr(job_metadata, "name", job_name)
+
         await self._state_store.update_active_status(RunStatus.RUNNING)
-        await self._log_streamer.start(run_id=run_id, job_name=job.metadata.name)
-        await self._schedule_monitor(run_id=run_id, job_name=job.metadata.name)
+        log_started = False
+        try:
+            await self._log_streamer.start(run_id=run_id, job_name=job_name)
+            log_started = True
+            await self._schedule_monitor(run_id=run_id, job_name=job_name)
+        except Exception as exc:
+            if log_started:
+                try:
+                    await self._log_streamer.stop(run_id)
+                except Exception:  # pragma: no cover - defensive cleanup
+                    logger.exception("Failed to stop log streamer for run %s", run_id)
+            try:
+                await jobs.delete_job(job_name, settings=self._settings, grace_period_seconds=0)
+            except Exception:  # pragma: no cover - defensive cleanup
+                logger.exception("Failed to delete job %s after start failure", job_name)
+            run_info = await self._state_store.finish_active_run(RunStatus.FAILED, message=str(exc))
+            await self._broadcast(
+                {
+                    "type": "run_completed",
+                    "payload": {
+                        "run_id": run_id,
+                        "status": RunStatus.FAILED,
+                        "run": run_info.model_dump() if run_info else None,
+                    },
+                }
+            )
+            raise
         logger.info("Started Nextflow run %s with job %s", run_id, job.metadata.name)
 
         return RunResponse(run_id=run_id, status=RunStatus.RUNNING, attached=False, job_name=job.metadata.name)
@@ -134,7 +162,7 @@ class PipelineManager:
             "payload": {
                 "run_id": run_id,
                 "status": terminal_status,
-                "run": run_info.dict() if run_info else None,
+                "run": run_info.model_dump() if run_info else None,
             },
         })
 
