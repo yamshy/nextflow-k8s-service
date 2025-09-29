@@ -51,7 +51,7 @@ k8s-manifests/            Deployment, service, ConfigMap, RBAC specs
 | DELETE | `/api/v1/pipeline/cancel`    | Cancel the active run |
 | GET    | `/api/v1/pipeline/history`   | List historical runs (bounded) |
 | WS     | `/api/v1/pipeline/stream`    | Receive live logs/status broadcasts |
-| GET    | `/healthz`                   | Service health probe |
+| GET    | `/health`, `/healthz`        | Service health probe |
 
 ## Kubernetes Deployment
 1. Build and push the service image (context is repo root):
