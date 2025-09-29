@@ -4,8 +4,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict
-
 from ..config import Settings
 from ..kubernetes.jobs import get_pod_log_stream, list_job_pods
 from ..models import LogChunk
@@ -46,37 +44,44 @@ class LogStreamer:
 
     async def _stream_loop(self, *, run_id: str, job_name: str, stop_event: asyncio.Event) -> None:
         logger.info("Starting log stream for run %s", run_id)
-        cursors: Dict[str, datetime] = {}
+        cursors: dict[tuple[str, str], datetime] = {}
         try:
             while not stop_event.is_set():
                 pods = await list_job_pods(job_name=job_name, settings=self._settings)
                 for pod in pods:
-                    container = pod.spec.containers[0].name if pod.spec and pod.spec.containers else "nextflow"
-                    cursor_key = f"{pod.metadata.name}:{container}"
-                    since_time = cursors.get(cursor_key)
-                    try:
-                        logs = await get_pod_log_stream(
-                            pod_name=pod.metadata.name,
-                            container=container,
-                            settings=self._settings,
-                            since_time=since_time,
-                        )
-                    except Exception as exc:  # pragma: no cover - defensive
-                        logger.debug("Unable to fetch logs for %s: %s", cursor_key, exc)
+                    metadata = getattr(pod, "metadata", None)
+                    pod_name = getattr(metadata, "name", None)
+                    if not pod_name:
                         continue
 
-                    if not logs:
-                        continue
+                    for container_name in self._container_names_for_pod(pod):
+                        cursor_key = (pod_name, container_name)
+                        since_time = cursors.get(cursor_key)
+                        cursor_label = f"{pod_name}:{container_name}"
+                        try:
+                            logs = await get_pod_log_stream(
+                                pod_name=pod_name,
+                                container=container_name,
+                                settings=self._settings,
+                                since_time=since_time,
+                            )
+                        except Exception as exc:  # pragma: no cover - defensive
+                            logger.debug("Unable to fetch logs for %s: %s", cursor_label, exc)
+                            continue
 
-                    for line in logs.splitlines():
-                        timestamp, message = self._split_timestamp(line)
-                        cursors[cursor_key] = timestamp or datetime.now(timezone.utc)
-                        chunk = LogChunk(
-                            run_id=run_id,
-                            timestamp=timestamp or datetime.now(timezone.utc),
-                            message=message,
-                        )
-                        await self._broadcaster.broadcast({"type": "log", "payload": chunk.dict()})
+                        if not logs:
+                            continue
+
+                        for line in logs.splitlines():
+                            timestamp, message = self._split_timestamp(line)
+                            effective_timestamp = timestamp or datetime.now(timezone.utc)
+                            cursors[cursor_key] = effective_timestamp
+                            chunk = LogChunk(
+                                run_id=run_id,
+                                timestamp=effective_timestamp,
+                                message=message,
+                            )
+                            await self._broadcaster.broadcast({"type": "log", "payload": chunk.dict()})
 
                 try:
                     await asyncio.wait_for(stop_event.wait(), timeout=self._settings.log_fetch_interval_seconds)
@@ -96,3 +101,28 @@ class LogStreamer:
             return datetime.fromisoformat(ts.replace("Z", "+00:00")), message
         except ValueError:
             return None, line
+
+    @staticmethod
+    def _container_names_for_pod(pod: object) -> list[str]:
+        spec = getattr(pod, "spec", None)
+        if spec is None:
+            return ["nextflow"]
+
+        container_names: list[str] = []
+        for attr in ("containers", "init_containers"):
+            containers = getattr(spec, attr, None) or []
+            for container in containers:
+                name = getattr(container, "name", None)
+                if name:
+                    container_names.append(name)
+
+        ephemeral_containers = getattr(spec, "ephemeral_containers", None) or []
+        for container in ephemeral_containers:
+            name = getattr(container, "name", None)
+            if name:
+                container_names.append(name)
+
+        if not container_names:
+            container_names.append("nextflow")
+
+        return container_names
