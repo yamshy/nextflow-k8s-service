@@ -59,7 +59,13 @@ async def test_stream_loop_emits_logs_from_all_containers(mocker: MockerFixture)
         "debugger": datetime(2024, 1, 1, 12, 2, 0, tzinfo=timezone.utc),
     }
 
-    async def fake_get_pod_log_stream(*, pod_name: str, container: str, settings: Settings, since_time: datetime | None) -> str:
+    async def fake_get_pod_log_stream(
+        *,
+        pod_name: str,
+        container: str,
+        settings: Settings,
+        since_time: datetime | None,
+    ) -> str:
         del pod_name, settings, since_time
         ts = timestamps[container]
         return f"{ts.isoformat()} {container} log"
