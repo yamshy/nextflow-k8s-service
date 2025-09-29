@@ -18,7 +18,7 @@ RUN uv sync --no-dev --frozen --no-install-project
 
 COPY nextflow_k8s_service ./nextflow_k8s_service
 
-RUN uv sync --no-dev --frozen --install-project
+RUN uv sync --no-dev --frozen
 
 ENV PATH="/app/.venv/bin:$PATH"
 
