@@ -88,8 +88,7 @@ def create_app() -> FastAPI:
     app.include_router(pipeline_router, prefix="/api/v1")
     app.include_router(websocket_router, prefix="/api/v1")
 
-    @app.get("/healthz", tags=["health"])
-    async def healthcheck(state_store: StateStore = Depends(get_state_store)) -> dict[str, str]:
+    async def _healthcheck(state_store: StateStore = Depends(get_state_store)) -> dict[str, str]:
         try:
             await state_store.ping()
             status = "ok"
@@ -97,6 +96,9 @@ def create_app() -> FastAPI:
             logger.exception("Healthcheck failed: %s", exc)
             status = "degraded"
         return {"status": status}
+
+    app.get("/healthz", tags=["health"])(_healthcheck)
+    app.get("/health", tags=["health"])(_healthcheck)
 
     return app
 
