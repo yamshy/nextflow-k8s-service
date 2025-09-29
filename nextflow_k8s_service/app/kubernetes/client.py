@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
 from typing import Optional
 
 from kubernetes import client as k8s_client
@@ -35,8 +34,21 @@ class KubernetesClient:
         self.batch: k8s_client.BatchV1Api = k8s_client.BatchV1Api()
 
 
-@lru_cache()
+_CLIENT_CACHE: dict[tuple[Optional[str],], KubernetesClient] = {}
+
+
+def _client_cache_key(settings: Settings) -> tuple[Optional[str],]:
+    """Derive a hashable cache key from the provided settings."""
+
+    return (settings.kube_context,)
+
+
 def get_kubernetes_client(settings: Optional[Settings] = None) -> KubernetesClient:
     if settings is None:
         settings = Settings()
-    return KubernetesClient(settings)
+
+    key = _client_cache_key(settings)
+    if key not in _CLIENT_CACHE:
+        _CLIENT_CACHE[key] = KubernetesClient(settings)
+
+    return _CLIENT_CACHE[key]
