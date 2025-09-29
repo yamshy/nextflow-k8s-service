@@ -136,3 +136,55 @@ async def test_current_status_falls_back_to_history(mocker) -> None:
     assert status.run is not None
     assert status.run.run_id == "history-run"
     assert status.run.status == RunStatus.SUCCEEDED
+
+
+@pytest.mark.asyncio
+async def test_cancel_active_run_handles_job_delete_failure(mocker) -> None:
+    settings = Settings()
+    now = datetime.now(timezone.utc)
+    active_run = RunInfo(
+        run_id="run-123",
+        status=RunStatus.RUNNING,
+        started_at=now,
+        finished_at=None,
+        job_name="nextflow-run-123",
+        message=None,
+    )
+    cancelled_info = RunInfo(
+        run_id="run-123",
+        status=RunStatus.CANCELLED,
+        started_at=now,
+        finished_at=now,
+        job_name="nextflow-run-123",
+        message="Cancelled by user",
+    )
+
+    state_store: StateStore = mocker.AsyncMock(spec=StateStore)
+    state_store.get_active_run.return_value = ActiveRunStatus(active=True, run=active_run)
+    state_store.cancel_active_run.return_value = cancelled_info
+
+    log_streamer: LogStreamer = mocker.AsyncMock(spec=LogStreamer)
+    broadcaster: Broadcaster = mocker.AsyncMock(spec=Broadcaster)
+
+    manager = PipelineManager(
+        settings=settings,
+        state_store=state_store,
+        log_streamer=log_streamer,
+        broadcaster=broadcaster,
+    )
+    manager._broadcast = mocker.AsyncMock()
+
+    mock_delete = mocker.AsyncMock(side_effect=RuntimeError("delete failed"))
+    mocker.patch("app.services.pipeline_manager.jobs.delete_job", mock_delete)
+
+    response = await manager.cancel_active_run()
+
+    mock_delete.assert_awaited_once_with("nextflow-run-123", settings=settings, grace_period_seconds=0)
+    log_streamer.stop.assert_awaited_once_with("run-123")
+    state_store.cancel_active_run.assert_awaited_once_with("Cancelled by user")
+    manager._broadcast.assert_awaited_once()
+
+    assert response.run_id == "run-123"
+    assert response.status == RunStatus.CANCELLED
+    assert response.cancelled is False
+    assert response.detail is not None and "delete failed" in response.detail
