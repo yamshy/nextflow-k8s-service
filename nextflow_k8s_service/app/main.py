@@ -75,7 +75,6 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         SlowAPIMiddleware,
-        limiter=limiter,
     )
 
     app.add_middleware(
