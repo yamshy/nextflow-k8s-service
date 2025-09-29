@@ -1,6 +1,7 @@
 """FastAPI application entrypoint for the Nextflow pipeline controller service."""
 import logging
 from contextlib import asynccontextmanager
+from importlib.metadata import version
 from typing import AsyncIterator
 
 from fastapi import Depends, FastAPI, Request
@@ -67,7 +68,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Nextflow Pipeline Controller",
-        version="1.0.9",
+        version=version("nextflow-k8s-service"),
         lifespan=lifespan,
     )
 
