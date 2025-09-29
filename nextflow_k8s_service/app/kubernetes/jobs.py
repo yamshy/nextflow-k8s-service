@@ -36,7 +36,11 @@ def _build_job_manifest(
 
     args = ["run", params.pipeline]
     for key, value in params.parameters.items():
-        args.extend([f"--{key}", str(value)])
+        # Nextflow uses -r for revision, not --revision
+        if key == "revision":
+            args.extend(["-r", str(value)])
+        else:
+            args.extend([f"--{key}", str(value)])
 
     container = k8s_client.V1Container(
         name="nextflow",
