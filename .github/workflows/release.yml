@@ -58,7 +58,7 @@ jobs:
           IMAGE_NAME: ${{ steps.image.outputs.name }}
           VERSION: ${{ steps.semantic_release.outputs.version }}
         run: |
-          docker build -t "$IMAGE_NAME:$VERSION" -f nextflow_k8s_service/Dockerfile .
+          docker build -t "$IMAGE_NAME:$VERSION" .
           docker tag "$IMAGE_NAME:$VERSION" "$IMAGE_NAME:latest"
           docker push "$IMAGE_NAME:$VERSION"
           docker push "$IMAGE_NAME:latest"

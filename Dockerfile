@@ -20,6 +20,10 @@ COPY nextflow_k8s_service ./nextflow_k8s_service
 
 RUN uv sync --no-dev --frozen
 
+RUN chown -R 1001:1001 /app
+
+USER 1001
+
 ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 8000

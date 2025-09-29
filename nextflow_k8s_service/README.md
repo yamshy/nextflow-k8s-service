@@ -21,7 +21,6 @@ app/
   utils/broadcaster.py    WebSocket fan-out primitive
 examples/simple-pipeline/ Minimal Nextflow workflow for testing
 k8s-manifests/            Deployment, service, ConfigMap, RBAC specs
-Dockerfile                Container build definition (uses uv)
 .env.example              Sample configuration values
 ```
 
@@ -57,7 +56,7 @@ Dockerfile                Container build definition (uses uv)
 ## Kubernetes Deployment
 1. Build and push the service image (context is repo root):
    ```bash
-   docker build -f nextflow_k8s_service/Dockerfile -t <registry>/nextflow-k8s-service:latest .
+   docker build -t <registry>/nextflow-k8s-service:latest .
    docker push <registry>/nextflow-k8s-service:latest
    ```
 2. Update the image reference in `k8s-manifests/deployment.yaml` and the ConfigMap values as needed.
