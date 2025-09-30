@@ -126,6 +126,11 @@ class LogStreamer:
                             timestamp, message = self._split_timestamp(line)
                             effective_timestamp = timestamp or datetime.now(timezone.utc)
                             self._log_cursors[cursor_key] = effective_timestamp
+
+                            # Skip empty messages (blank lines) to reduce noise
+                            if not message or not message.strip():
+                                continue
+
                             pending_lines.append(
                                 {
                                     "timestamp": effective_timestamp,
@@ -319,6 +324,15 @@ class LogStreamer:
             done = int(match.group("done"))
             total = int(match.group("total"))
             return done, total, None
+        # Detect pipeline startup/initialization messages
+        startup_indicators = [
+            "Launching",
+            "Pulling",
+            "executor >",
+            "Staging foreign file",
+        ]
+        if any(indicator in message for indicator in startup_indicators):
+            return 0, 100, None  # Show 0% but indicate activity
         if "Pipeline completed successfully" in message:
             return 1, 1, "success"
         if "Pipeline completed with errors" in message:
