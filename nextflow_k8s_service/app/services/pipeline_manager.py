@@ -203,6 +203,8 @@ class PipelineManager:
             )
             terminal_status = RunStatus.UNKNOWN
 
+        # Allow log streamer to fetch final logs before stopping
+        await asyncio.sleep(self._settings.log_fetch_interval_seconds + 0.5)
         await self._log_streamer.stop(run_id)
         run_info = await self._state_store.finish_active_run(terminal_status)
         if terminal_status in {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.UNKNOWN}:
