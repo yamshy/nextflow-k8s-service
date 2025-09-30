@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Nextflow Pipeline Controller",
-    "version": "1.8.1"
+    "version": "1.8.2"
   },
   "paths": {
     "/api/v1/pipeline/run": {
