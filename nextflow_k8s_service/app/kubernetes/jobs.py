@@ -129,7 +129,7 @@ async def get_job_status(job_name: str, settings: Settings) -> RunStatus:
     if status is None:
         return RunStatus.UNKNOWN
 
-    # Check conditions (authoritative for terminal states)
+    # Check conditions first (most authoritative)
     if status.conditions:
         for condition in status.conditions:
             if condition.type == "Complete" and condition.status == "True":
@@ -137,7 +137,11 @@ async def get_job_status(job_name: str, settings: Settings) -> RunStatus:
             if condition.type == "Failed" and condition.status == "True":
                 return RunStatus.FAILED
 
-    # Check if job is still active
+    # Fallback to counters (may be set before conditions in some K8s versions)
+    if status.succeeded and status.succeeded > 0:
+        return RunStatus.SUCCEEDED
+    if status.failed and status.failed > 0:
+        return RunStatus.FAILED
     if status.active and status.active > 0:
         return RunStatus.RUNNING
 
