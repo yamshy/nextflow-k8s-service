@@ -203,6 +203,11 @@ async def create_job(run_id: str, params: PipelineParameters, settings: Settings
     else:
         cpu_numeric = float(cpu_limit)
 
+    # Convert memory format for k8s directives (Nextflow uses GB/MB, k8s uses Gi/Mi)
+    # For process directive, use Nextflow format (e.g., "1 GB")
+    # For k8s.memoryLimits, convert to k8s format (e.g., "1Gi")
+    memory_limit_k8s = settings.worker_memory_limit.replace(" GB", "Gi").replace(" MB", "Mi")
+
     nextflow_config = f"""
 process {{
     executor = 'k8s'
@@ -216,7 +221,7 @@ k8s {{
     namespace = '{settings.nextflow_namespace}'
     serviceAccount = '{settings.nextflow_service_account}'
     cpuLimits = '{settings.worker_cpu_limit}'
-    memoryLimits = '{settings.worker_memory_limit}'
+    memoryLimits = '{memory_limit_k8s}'
 }}
 """
 
