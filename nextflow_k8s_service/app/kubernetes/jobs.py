@@ -46,6 +46,10 @@ def _build_job_manifest(
     # Nextflow core options use single dash, pipeline parameters use double dash
     nextflow_core_options = {"profile", "revision", "resume", "with-docker", "with-singularity", "with-conda"}
 
+    # Set default outdir if not provided (required by most nf-core pipelines)
+    if "outdir" not in params.parameters:
+        params.parameters["outdir"] = "/workspace/results"
+
     args = ["run", params.pipeline]
     for key, value in params.parameters.items():
         if key == "revision":
