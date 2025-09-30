@@ -33,6 +33,65 @@ uv run ruff check .         # Check for lint errors
 uv run ruff format .        # Format code
 ```
 
+## Development Workflow
+
+### Making Changes
+
+**IMPORTANT:** Always create changes in new branches and submit pull requests. Never commit directly to `main`.
+
+**Workflow:**
+1. **Start from main:**
+   ```bash
+   git checkout main
+   git pull origin main
+   ```
+
+2. **Create a new branch:**
+   ```bash
+   git checkout -b fix/descriptive-name       # For bug fixes
+   git checkout -b feat/descriptive-name      # For new features
+   git checkout -b docs/descriptive-name      # For documentation
+   ```
+
+3. **Make changes and test:**
+   ```bash
+   # Make your changes
+   uv run pytest -v              # Run tests
+   uv run ruff check .           # Check for lint errors
+   uv run ruff format .          # Format code
+   ```
+
+4. **Commit with conventional commit messages:**
+   ```bash
+   git add -A
+   git commit -m "fix: add counter fallback for job status detection"
+   # Or: feat:, docs:, chore:, refactor:, test:
+   # Keep commit messages concise - focus on WHAT changed, not WHY
+   # Details go in PR description, not commit message
+   ```
+
+5. **Push and create pull request:**
+   ```bash
+   git push -u origin fix/descriptive-name
+   gh pr create --title "fix: description" --body "Detailed explanation"
+   ```
+
+### Branch Naming Conventions
+- `fix/*` - Bug fixes
+- `feat/*` - New features
+- `docs/*` - Documentation updates
+- `chore/*` - Maintenance tasks
+- `refactor/*` - Code refactoring
+- `test/*` - Test additions/improvements
+
+### Pull Request Requirements
+- All tests must pass (`uv run pytest -v`)
+- Code must be linted and formatted (`uv run ruff check . && uv run ruff format .`)
+- Use conventional commit format in PR title (e.g., `fix: add counter fallback`)
+- **Commit messages should be concise** - state what changed, not why
+- Include detailed explanation of changes and motivation in PR description
+- Reference related issues if applicable
+
 ## Architecture Overview
 
 ### Core Components
