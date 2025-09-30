@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Nextflow Pipeline Controller",
-    "version": "1.3.0"
+    "version": "1.4.0"
   },
   "paths": {
     "/api/v1/pipeline/run": {
@@ -226,6 +226,52 @@
                 "type": "null"
               }
             ]
+          },
+          "progress_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Percent"
+          },
+          "log_preview": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Log Preview"
+          },
+          "websocket_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Websocket Url"
+          },
+          "connected_clients": {
+            "type": "integer",
+            "title": "Connected Clients",
+            "default": 0
+          },
+          "last_update": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Update"
           }
         },
         "type": "object",
@@ -499,6 +545,17 @@
               }
             ],
             "title": "Job Name"
+          },
+          "websocket_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Websocket Url"
           }
         },
         "type": "object",
