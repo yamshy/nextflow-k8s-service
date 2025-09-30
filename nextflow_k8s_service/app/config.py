@@ -1,4 +1,5 @@
 """Configuration models for the Nextflow pipeline controller."""
+
 from functools import lru_cache
 from typing import Optional
 

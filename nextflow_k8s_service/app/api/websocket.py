@@ -1,4 +1,5 @@
 """WebSocket endpoints for real-time pipeline updates."""
+
 from __future__ import annotations
 
 import asyncio
@@ -58,7 +59,7 @@ async def pipeline_stream(websocket: WebSocket) -> None:
     await websocket.send_json(
         {
             "type": StreamMessageType.STATUS.value,
-            "data": status.model_dump(),
+            "data": status.model_dump(mode="json"),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "run_id": run_id,
         }

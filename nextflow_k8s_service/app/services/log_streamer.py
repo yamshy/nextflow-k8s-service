@@ -1,4 +1,5 @@
 """Service that streams Kubernetes pod logs to connected WebSocket clients."""
+
 from __future__ import annotations
 
 import asyncio

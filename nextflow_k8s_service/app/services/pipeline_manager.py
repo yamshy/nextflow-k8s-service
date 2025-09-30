@@ -1,4 +1,5 @@
 """High-level orchestration for Nextflow pipeline execution."""
+
 from __future__ import annotations
 
 import asyncio
@@ -141,7 +142,7 @@ class PipelineManager:
                 message_type=StreamMessageType.COMPLETE,
                 data={
                     "status": RunStatus.FAILED.value,
-                    "run": run_info.model_dump() if run_info else None,
+                    "run": run_info.model_dump(mode="json") if run_info else None,
                 },
             )
             async with self._task_lock:
@@ -216,7 +217,7 @@ class PipelineManager:
             message_type=StreamMessageType.COMPLETE,
             data={
                 "status": terminal_status.value,
-                "run": run_info.model_dump() if run_info else None,
+                "run": run_info.model_dump(mode="json") if run_info else None,
             },
         )
 
@@ -260,7 +261,7 @@ class PipelineManager:
                 message_type=StreamMessageType.COMPLETE,
                 data={
                     "status": RunStatus.CANCELLED.value,
-                    "run": info.model_dump() if info else None,
+                    "run": info.model_dump(mode="json") if info else None,
                 },
             )
             await self._state_store.set_monitor_task(None)
