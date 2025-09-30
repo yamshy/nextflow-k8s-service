@@ -39,8 +39,8 @@ class Settings(BaseSettings):
     # Resource limits for Nextflow worker pods (pipeline tasks)
     worker_cpu_request: str = Field(default="1")
     worker_cpu_limit: str = Field(default="4")
-    worker_memory_request: str = Field(default="2Gi")
-    worker_memory_limit: str = Field(default="8Gi")
+    worker_memory_request: str = Field(default="2 GB")
+    worker_memory_limit: str = Field(default="8 GB")
 
 
 @lru_cache()
