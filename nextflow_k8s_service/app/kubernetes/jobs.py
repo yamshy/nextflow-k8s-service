@@ -148,6 +148,17 @@ async def get_job_status(job_name: str, settings: Settings) -> RunStatus:
     if status.failed and status.failed > 0:
         return RunStatus.FAILED
 
+    # Fallback: check pod status if job status fields not yet updated (race condition)
+    if status.active == 0:
+        pods = await list_job_pods(job_name=job_name, settings=settings)
+        if pods:
+            # Check first pod status (jobs create one pod at a time)
+            pod = pods[0]
+            if pod.status and pod.status.phase == "Succeeded":
+                return RunStatus.SUCCEEDED
+            if pod.status and pod.status.phase == "Failed":
+                return RunStatus.FAILED
+
     return RunStatus.UNKNOWN
 
 
