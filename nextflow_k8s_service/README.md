@@ -40,7 +40,7 @@ k8s-manifests/            Deployment, service, ConfigMap, RBAC specs
    ```
 4. **Access API**
    - Open `http://localhost:8000/docs` for interactive OpenAPI docs.
-   - WebSocket clients connect to `ws://localhost:8000/api/v1/pipeline/stream`.
+- WebSocket clients connect to `ws://localhost:8000/api/v1/pipeline/stream`.
 
 ## API Overview
 | Method | Path                         | Description |
@@ -52,6 +52,59 @@ k8s-manifests/            Deployment, service, ConfigMap, RBAC specs
 | GET    | `/api/v1/pipeline/history`   | List historical runs (bounded) |
 | WS     | `/api/v1/pipeline/stream`    | Receive live logs/status broadcasts |
 | GET    | `/health`, `/healthz`        | Service health probe |
+
+## Real-time Streaming
+
+The `/api/v1/pipeline/stream` WebSocket endpoint accepts multiple concurrent clients (up to the limit specified by
+`MAX_WEBSOCKET_CONNECTIONS`) and fan-outs structured JSON envelopes:
+
+```json
+{
+  "type": "status" | "progress" | "log" | "complete" | "error",
+  "data": { ... },
+  "timestamp": "2024-04-01T12:00:00Z",
+  "run_id": "4f3a7c9b1d2e"
+}
+```
+
+- **status** – lifecycle transitions (`queued`, `starting`, `running`, `cancelled`, etc.) and keep-alive pings.
+- **progress** – parsed `[completed/total] process > ...` indicators with a computed percentage.
+- **log** – batched log entries (max 50 lines) that include pod/container metadata and timestamps.
+- **complete** – terminal state summaries containing the persisted `RunInfo` payload.
+- **error** – surfaced Kubernetes or Nextflow errors (`WARN`/`ERROR` lines, monitor failures, pod startup issues).
+
+Polling the REST status endpoint still works, but now returns `progress_percent`, a rolling `log_preview`, and the
+current WebSocket URL so dashboards can pivot to streaming when available.
+
+### Test Workflows
+
+`examples/test_workflows.yaml` documents the demo pipelines used in end-to-end testing:
+
+```yaml
+hello:
+  expected_duration: 30        # seconds
+  expected_processes: 1
+  log_patterns:
+    - "Simple single process output"
+
+rnaseq-test:
+  expected_duration: 120       # ~2 minutes
+  expected_processes: "5-7"
+  log_patterns:
+    - "FASTQC"
+    - "trimming"
+    - "alignment"
+
+parallel-demo:
+  expected_duration: 180       # ~3 minutes
+  expected_processes: "10-15"
+  log_patterns:
+    - "Parallel execution"
+    - "scatter"
+    - "gather"
+```
+
+These references help QA teams validate log parsing and progress tracking during manual or automated smoke tests.
 
 ## Kubernetes Deployment
 1. Build and push the service image (context is repo root):

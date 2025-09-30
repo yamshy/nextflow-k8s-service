@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from ..models import StreamMessageType
 from ..services.pipeline_manager import PipelineManager
-from ..utils.broadcaster import Broadcaster
+from ..services.state_store import StateStore
+from ..utils.broadcaster import Broadcaster, ConnectionLimitExceeded
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline-stream"])
 
@@ -15,14 +21,47 @@ async def pipeline_stream(websocket: WebSocket) -> None:
     await websocket.accept()
     manager: PipelineManager = websocket.app.state.pipeline_manager  # type: ignore[attr-defined]
     broadcaster: Broadcaster = websocket.app.state.broadcaster  # type: ignore[attr-defined]
+    state_store: StateStore = websocket.app.state.state_store  # type: ignore[attr-defined]
 
-    await broadcaster.register(websocket)
+    try:
+        await broadcaster.register(websocket)
+    except ConnectionLimitExceeded:
+        await websocket.close(code=1013, reason="Too many connections")
+        return
+
+    async def _keepalive() -> None:
+        try:
+            while True:
+                await asyncio.sleep(30)
+                status = await manager.current_status()
+                run_id = status.run.run_id if status.run else "none"
+                await websocket.send_json(
+                    {
+                        "type": StreamMessageType.STATUS.value,
+                        "data": {
+                            "status": "keep-alive",
+                            "connected_clients": await state_store.get_connected_clients(),
+                        },
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "run_id": run_id,
+                    }
+                )
+        except asyncio.CancelledError:  # pragma: no cover - cooperative cancellation
+            raise
+        except Exception:  # pragma: no cover - defensive logging
+            await broadcaster.unregister(websocket)
+            raise
+
+    keepalive_task = asyncio.create_task(_keepalive())
 
     status = await manager.current_status()
+    run_id = status.run.run_id if status.run else "none"
     await websocket.send_json(
         {
-            "type": "initial_status",
-            "payload": status.model_dump(mode="json"),
+            "type": StreamMessageType.STATUS.value,
+            "data": status.model_dump(mode="json"),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "run_id": run_id,
         }
     )
 
@@ -32,4 +71,7 @@ async def pipeline_stream(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
+        keepalive_task.cancel()
+        with contextlib.suppress(Exception):
+            await keepalive_task
         await broadcaster.unregister(websocket)

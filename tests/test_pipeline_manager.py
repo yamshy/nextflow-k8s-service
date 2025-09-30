@@ -6,7 +6,15 @@ from types import SimpleNamespace
 import pytest
 
 from app.config import Settings
-from app.models import ActiveRunStatus, PipelineParameters, RunHistoryEntry, RunInfo, RunRequest, RunStatus
+from app.models import (
+    ActiveRunStatus,
+    PipelineParameters,
+    RunHistoryEntry,
+    RunInfo,
+    RunRequest,
+    RunStatus,
+    StreamMessageType,
+)
 from app.services.log_streamer import LogStreamer
 from app.services.pipeline_manager import PipelineManager
 from app.services.state_store import StateStore
@@ -36,7 +44,6 @@ async def test_start_or_attach_run_returns_existing(mocker) -> None:
         log_streamer=log_streamer,
         broadcaster=broadcaster,
     )
-    manager._broadcast = mocker.AsyncMock()  # replace internal fan-out with stub
 
     run_request = RunRequest(
         parameters=PipelineParameters(pipeline="hello", parameters={}, workdir=None),
@@ -49,7 +56,8 @@ async def test_start_or_attach_run_returns_existing(mocker) -> None:
     assert result.attached is True
     assert result.status == RunStatus.RUNNING
     assert result.job_name == "nextflow-run-existing"
-    assert manager._broadcast.await_count == 0
+    assert broadcaster.broadcast.await_count == 0
+    assert result.websocket_url == "/api/v1/pipeline/stream"
 
 
 @pytest.mark.asyncio
@@ -57,7 +65,13 @@ async def test_start_or_attach_run_creates_new_job(mocker) -> None:
     settings = Settings()
     state_store: StateStore = mocker.AsyncMock(spec=StateStore)
     state_store.get_active_run.return_value = ActiveRunStatus(active=False, run=None)
+    state_store.get_progress.return_value = (0.0, None, None)
+    state_store.get_recent_logs.return_value = []
+    state_store.get_connected_clients.return_value = 0
+    state_store.get_last_broadcast.return_value = None
     state_store.acquire_active_run.return_value = True
+    state_store.update_progress.return_value = (0.0, None, None)
+    state_store.update_progress.return_value = (0.0, None, None)
 
     log_streamer: LogStreamer = mocker.AsyncMock(spec=LogStreamer)
     broadcaster: Broadcaster = mocker.AsyncMock(spec=Broadcaster)
@@ -68,8 +82,6 @@ async def test_start_or_attach_run_creates_new_job(mocker) -> None:
         log_streamer=log_streamer,
         broadcaster=broadcaster,
     )
-
-    manager._broadcast = mocker.AsyncMock()
     mock_schedule = mocker.AsyncMock()
     mocker.patch.object(manager, "_schedule_monitor", mock_schedule)
 
@@ -91,15 +103,77 @@ async def test_start_or_attach_run_creates_new_job(mocker) -> None:
     assert result.status == RunStatus.RUNNING
     assert result.job_name == "nextflow-run-1234567890ab"
     assert result.run_id == "1234567890ab"
+    assert result.websocket_url == "/api/v1/pipeline/stream"
 
     mock_create.assert_awaited_once()
     state_store.acquire_active_run.assert_awaited_once()
     state_store.update_active_status.assert_awaited_once_with(RunStatus.RUNNING)
     log_streamer.start.assert_awaited_once_with(run_id="1234567890ab", job_name="nextflow-run-1234567890ab")
     mock_schedule.assert_awaited_once_with(run_id="1234567890ab", job_name="nextflow-run-1234567890ab")
-    assert manager._broadcast.await_count >= 1
-    first_message = manager._broadcast.await_args_list[0].args[0]
-    assert first_message["payload"]["status"] == RunStatus.STARTING
+    assert broadcaster.broadcast.await_count >= 2
+    first_message = broadcaster.broadcast.await_args_list[0].args[0]
+    assert first_message["type"] == StreamMessageType.STATUS.value
+    assert first_message["data"]["status"] == RunStatus.STARTING.value
+
+
+@pytest.mark.asyncio
+async def test_start_or_attach_run_broadcasts_complete_on_job_creation_failure(mocker) -> None:
+    settings = Settings()
+    state_store: StateStore = mocker.AsyncMock(spec=StateStore)
+    state_store.get_active_run.return_value = ActiveRunStatus(active=False, run=None)
+    state_store.acquire_active_run.return_value = True
+    state_store.update_progress.return_value = (0.0, None, None)
+
+    run_info = RunInfo(
+        run_id="feedbead1234",
+        status=RunStatus.FAILED,
+        started_at=datetime.now(timezone.utc),
+        finished_at=None,
+        job_name="nextflow-run-feedbead1234",
+        message="boom",
+    )
+    state_store.finish_active_run.return_value = run_info
+
+    log_streamer: LogStreamer = mocker.AsyncMock(spec=LogStreamer)
+    broadcaster: Broadcaster = mocker.AsyncMock(spec=Broadcaster)
+
+    manager = PipelineManager(
+        settings=settings,
+        state_store=state_store,
+        log_streamer=log_streamer,
+        broadcaster=broadcaster,
+    )
+
+    fake_uuid = mocker.Mock(hex="feedbead12345678deadbeef")
+    mocker.patch("app.services.pipeline_manager.uuid.uuid4", return_value=fake_uuid)
+
+    creation_error = RuntimeError("boom")
+    mocker.patch("app.services.pipeline_manager.jobs.create_job", side_effect=creation_error)
+
+    run_request = RunRequest(
+        parameters=PipelineParameters(pipeline="nf", parameters={}, workdir=None),
+        triggered_by="tester",
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        await manager.start_or_attach_run(run_request)
+
+    assert str(excinfo.value) == "boom"
+
+    state_store.finish_active_run.assert_awaited_once_with(RunStatus.FAILED, message="boom")
+
+    broadcast_calls = broadcaster.broadcast.await_args_list
+    assert len(broadcast_calls) >= 3
+    error_payload = broadcast_calls[1].args[0]
+    assert error_payload["type"] == StreamMessageType.ERROR.value
+    assert error_payload["data"]["stage"] == "job_creation"
+    assert error_payload["data"]["message"] == "boom"
+
+    complete_payload = broadcast_calls[2].args[0]
+    assert complete_payload["type"] == StreamMessageType.COMPLETE.value
+    assert complete_payload["data"]["status"] == RunStatus.FAILED.value
+    assert complete_payload["data"]["run"]["run_id"] == "feedbead1234"
+    assert complete_payload["run_id"] == "feedbead1234"
 
 
 @pytest.mark.asyncio
@@ -128,8 +202,6 @@ async def test_start_or_attach_run_cleans_up_on_monitor_failure(mocker) -> None:
         log_streamer=log_streamer,
         broadcaster=broadcaster,
     )
-
-    manager._broadcast = mocker.AsyncMock()
 
     fake_uuid = mocker.Mock(hex="1234567890abcdef")
     mocker.patch("app.services.pipeline_manager.uuid.uuid4", return_value=fake_uuid)
@@ -161,12 +233,13 @@ async def test_start_or_attach_run_cleans_up_on_monitor_failure(mocker) -> None:
     mock_delete.assert_awaited_once_with("nextflow-run-1234567890ab", settings=settings, grace_period_seconds=0)
 
     state_store.finish_active_run.assert_awaited_once_with(RunStatus.FAILED, message="monitor boom")
+    state_store.set_monitor_task.assert_awaited()
 
-    assert manager._broadcast.await_count == 2
-    broadcast_payload = manager._broadcast.await_args_list[-1].args[0]
-    assert broadcast_payload["type"] == "run_completed"
-    assert broadcast_payload["payload"]["status"] == RunStatus.FAILED
-    assert broadcast_payload["payload"]["run_id"] == "1234567890ab"
+    assert broadcaster.broadcast.await_count >= 2
+    broadcast_payload = broadcaster.broadcast.await_args_list[-1].args[0]
+    assert broadcast_payload["type"] == StreamMessageType.COMPLETE.value
+    assert broadcast_payload["data"]["status"] == RunStatus.FAILED.value
+    assert broadcast_payload["run_id"] == "1234567890ab"
 
 
 @pytest.mark.asyncio
@@ -174,6 +247,10 @@ async def test_current_status_falls_back_to_history(mocker) -> None:
     settings = Settings()
     state_store: StateStore = mocker.AsyncMock(spec=StateStore)
     state_store.get_active_run.return_value = ActiveRunStatus(active=False, run=None)
+    state_store.get_progress.return_value = (0.0, None, None)
+    state_store.get_recent_logs.return_value = []
+    state_store.get_connected_clients.return_value = 0
+    state_store.get_last_broadcast.return_value = None
 
     last_run = RunHistoryEntry(
         run_id="history-run",
@@ -195,7 +272,6 @@ async def test_current_status_falls_back_to_history(mocker) -> None:
         log_streamer=log_streamer,
         broadcaster=broadcaster,
     )
-    manager._broadcast = mocker.AsyncMock()
 
     status = await manager.current_status()
 
@@ -203,6 +279,7 @@ async def test_current_status_falls_back_to_history(mocker) -> None:
     assert status.run is not None
     assert status.run.run_id == "history-run"
     assert status.run.status == RunStatus.SUCCEEDED
+    assert status.websocket_url == "/api/v1/pipeline/stream"
 
 
 @pytest.mark.asyncio
@@ -239,7 +316,6 @@ async def test_cancel_active_run_handles_job_delete_failure(mocker) -> None:
         log_streamer=log_streamer,
         broadcaster=broadcaster,
     )
-    manager._broadcast = mocker.AsyncMock()
 
     mock_delete = mocker.AsyncMock(side_effect=RuntimeError("delete failed"))
     mocker.patch("app.services.pipeline_manager.jobs.delete_job", mock_delete)
@@ -249,7 +325,13 @@ async def test_cancel_active_run_handles_job_delete_failure(mocker) -> None:
     mock_delete.assert_awaited_once_with("nextflow-run-123", settings=settings, grace_period_seconds=0)
     log_streamer.stop.assert_awaited_once_with("run-123")
     state_store.cancel_active_run.assert_awaited_once_with("Cancelled by user")
-    manager._broadcast.assert_awaited_once()
+    state_store.set_monitor_task.assert_awaited()
+
+    assert broadcaster.broadcast.await_count == 2
+    status_msg = broadcaster.broadcast.await_args_list[0].args[0]
+    assert status_msg["data"]["status"] == RunStatus.CANCELLED.value
+    complete_msg = broadcaster.broadcast.await_args_list[1].args[0]
+    assert complete_msg["type"] == StreamMessageType.COMPLETE.value
 
     assert response.run_id == "run-123"
     assert response.status == RunStatus.CANCELLED

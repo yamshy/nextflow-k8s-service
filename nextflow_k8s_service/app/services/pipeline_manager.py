@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from typing import Any, Dict, Optional
+import contextlib
+from datetime import datetime, timezone
+from typing import Optional
 
 from ..config import Settings
 from ..kubernetes import jobs
@@ -18,6 +20,7 @@ from ..models import (
     RunRequest,
     RunResponse,
     RunStatus,
+    StreamMessageType,
 )
 from ..utils.broadcaster import Broadcaster
 from .log_streamer import LogStreamer
@@ -43,6 +46,7 @@ class PipelineManager:
         self._task_lock = asyncio.Lock()
 
     async def start_or_attach_run(self, request: RunRequest) -> RunResponse:
+        websocket_url = self._websocket_url()
         active = await self._state_store.get_active_run()
         if active.active and active.run:
             return RunResponse(
@@ -50,6 +54,7 @@ class PipelineManager:
                 status=active.run.status,
                 attached=True,
                 job_name=active.run.job_name,
+                websocket_url=websocket_url,
             )
 
         run_id = uuid.uuid4().hex[:12]
@@ -68,29 +73,54 @@ class PipelineManager:
                     status=active.run.status,
                     attached=True,
                     job_name=active.run.job_name,
+                    websocket_url=websocket_url,
                 )
             raise RuntimeError("Unable to acquire pipeline lock")
 
-        await self._broadcast(
-            {
-                "type": "run_status",
-                "payload": {
-                    "run_id": run_id,
-                    "status": RunStatus.STARTING,
-                },
-            }
+        await self._state_store.update_progress(percent=0.0)
+        await self._broadcast_message(
+            run_id=run_id,
+            message_type=StreamMessageType.STATUS,
+            data={
+                "status": RunStatus.STARTING.value,
+                "job_name": job_name,
+            },
         )
 
         try:
             job = await jobs.create_job(run_id=run_id, params=request.parameters, settings=self._settings)
         except Exception as exc:
-            await self._state_store.finish_active_run(RunStatus.FAILED, message=str(exc))
+            run_info = await self._state_store.finish_active_run(RunStatus.FAILED, message=str(exc))
+            await self._broadcast_message(
+                run_id=run_id,
+                message_type=StreamMessageType.ERROR,
+                data={
+                    "stage": "job_creation",
+                    "message": str(exc),
+                },
+            )
+            await self._broadcast_message(
+                run_id=run_id,
+                message_type=StreamMessageType.COMPLETE,
+                data={
+                    "status": RunStatus.FAILED.value,
+                    "run": run_info.model_dump() if run_info else None,
+                },
+            )
             raise
 
         job_metadata = getattr(job, "metadata", None)
         job_name = getattr(job_metadata, "name", job_name)
 
         await self._state_store.update_active_status(RunStatus.RUNNING)
+        await self._broadcast_message(
+            run_id=run_id,
+            message_type=StreamMessageType.STATUS,
+            data={
+                "status": RunStatus.RUNNING.value,
+                "job_name": job_name,
+            },
+        )
         log_started = False
         try:
             await self._log_streamer.start(run_id=run_id, job_name=job_name)
@@ -107,20 +137,31 @@ class PipelineManager:
             except Exception:  # pragma: no cover - defensive cleanup
                 logger.exception("Failed to delete job %s after start failure", job_name)
             run_info = await self._state_store.finish_active_run(RunStatus.FAILED, message=str(exc))
-            await self._broadcast(
-                {
-                    "type": "run_completed",
-                    "payload": {
-                        "run_id": run_id,
-                        "status": RunStatus.FAILED,
-                        "run": run_info.model_dump(mode="json") if run_info else None,
-                    },
-                }
+            await self._broadcast_message(
+                run_id=run_id,
+                message_type=StreamMessageType.COMPLETE,
+                data={
+                    "status": RunStatus.FAILED.value,
+                    "run": run_info.model_dump(mode="json") if run_info else None,
+                },
             )
+            async with self._task_lock:
+                monitor_task = self._tasks.pop(run_id, None)
+            if monitor_task:
+                monitor_task.cancel()
+                with contextlib.suppress(Exception):
+                    await monitor_task
+            await self._state_store.set_monitor_task(None)
             raise
         logger.info("Started Nextflow run %s with job %s", run_id, job.metadata.name)
 
-        return RunResponse(run_id=run_id, status=RunStatus.RUNNING, attached=False, job_name=job.metadata.name)
+        return RunResponse(
+            run_id=run_id,
+            status=RunStatus.RUNNING,
+            attached=False,
+            job_name=job.metadata.name,
+            websocket_url=websocket_url,
+        )
 
     async def _schedule_monitor(self, *, run_id: str, job_name: str) -> None:
         async with self._task_lock:
@@ -128,18 +169,18 @@ class PipelineManager:
                 return
             task = asyncio.create_task(self._monitor_run(run_id=run_id, job_name=job_name))
             self._tasks[run_id] = task
+        await self._state_store.set_monitor_task(task)
 
     async def _monitor_run(self, *, run_id: str, job_name: str) -> None:
         async def _on_status(status: RunStatus) -> None:
             await self._state_store.update_active_status(status)
-            await self._broadcast(
-                {
-                    "type": "run_status",
-                    "payload": {
-                        "run_id": run_id,
-                        "status": status,
-                    },
-                }
+            await self._broadcast_message(
+                run_id=run_id,
+                message_type=StreamMessageType.STATUS,
+                data={
+                    "status": status.value,
+                    "job_name": job_name,
+                },
             )
 
         try:
@@ -147,10 +188,19 @@ class PipelineManager:
                 run_id=run_id,
                 job_name=job_name,
                 settings=self._settings,
+                poll_interval=self._settings.monitor_poll_interval_seconds,
                 on_status=_on_status,
             )
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.exception("Run %s monitor failed: %s", run_id, exc)
+            await self._broadcast_message(
+                run_id=run_id,
+                message_type=StreamMessageType.ERROR,
+                data={
+                    "stage": "monitoring",
+                    "message": str(exc),
+                },
+            )
             terminal_status = RunStatus.UNKNOWN
 
         await self._log_streamer.stop(run_id)
@@ -162,19 +212,18 @@ class PipelineManager:
                 grace_period_seconds=self._settings.cleanup_grace_period_seconds,
             )
 
-        await self._broadcast(
-            {
-                "type": "run_completed",
-                "payload": {
-                    "run_id": run_id,
-                    "status": terminal_status,
-                    "run": run_info.model_dump(mode="json") if run_info else None,
-                },
-            }
+        await self._broadcast_message(
+            run_id=run_id,
+            message_type=StreamMessageType.COMPLETE,
+            data={
+                "status": terminal_status.value,
+                "run": run_info.model_dump(mode="json") if run_info else None,
+            },
         )
 
         async with self._task_lock:
             self._tasks.pop(run_id, None)
+        await self._state_store.set_monitor_task(None)
 
     async def cancel_active_run(self) -> CancelResponse:
         """Cancel the active run and return the resulting status.
@@ -199,14 +248,23 @@ class PipelineManager:
         finally:
             await self._log_streamer.stop(active.run.run_id)
             info = await self._state_store.cancel_active_run("Cancelled by user")
-            await self._broadcast(
-                {
-                    "type": "run_cancelled",
-                    "payload": {
-                        "run_id": active.run.run_id,
-                    },
-                }
+            await self._broadcast_message(
+                run_id=active.run.run_id,
+                message_type=StreamMessageType.STATUS,
+                data={
+                    "status": RunStatus.CANCELLED.value,
+                    "reason": "Cancelled by user",
+                },
             )
+            await self._broadcast_message(
+                run_id=active.run.run_id,
+                message_type=StreamMessageType.COMPLETE,
+                data={
+                    "status": RunStatus.CANCELLED.value,
+                    "run": info.model_dump(mode="json") if info else None,
+                },
+            )
+            await self._state_store.set_monitor_task(None)
 
         detail = None
         cancelled = deletion_error is None
@@ -221,30 +279,43 @@ class PipelineManager:
         )
 
     async def is_active(self) -> ActiveRunStatus:
-        return await self._state_store.get_active_run()
+        return await self.current_status()
 
     async def get_history(self, limit: Optional[int] = None) -> list[RunHistoryEntry]:
         return await self._state_store.get_history(limit=limit)
 
     async def current_status(self) -> ActiveRunStatus:
         active = await self._state_store.get_active_run()
-        if active.active:
-            return active
+        progress_percent, _, _ = await self._state_store.get_progress()
+        logs = await self._state_store.get_recent_logs(limit=10)
+        connected = await self._state_store.get_connected_clients()
+        last_update = await self._state_store.get_last_broadcast()
 
-        history = await self._state_store.get_history(limit=1)
-        if history:
-            last = history[0]
-            run = RunInfo(
-                run_id=last.run_id,
-                status=last.status,
-                started_at=last.started_at,
-                finished_at=last.finished_at,
-                job_name=last.job_name,
-                message=None,
-            )
-            return ActiveRunStatus(active=False, run=run)
+        run_info = active.run
+        if not active.active and not run_info:
+            history = await self._state_store.get_history(limit=1)
+            if history:
+                last = history[0]
+                run_info = RunInfo(
+                    run_id=last.run_id,
+                    status=last.status,
+                    started_at=last.started_at,
+                    finished_at=last.finished_at,
+                    job_name=last.job_name,
+                    message=None,
+                )
 
-        return ActiveRunStatus(active=False, run=None)
+        progress_value = progress_percent if (active.active or progress_percent > 0.0) else None
+
+        return ActiveRunStatus(
+            active=active.active,
+            run=run_info,
+            progress_percent=progress_value,
+            log_preview=logs,
+            websocket_url=self._websocket_url(),
+            connected_clients=connected,
+            last_update=last_update,
+        )
 
     async def shutdown(self) -> None:
         async with self._task_lock:
@@ -257,6 +328,24 @@ class PipelineManager:
                 await task
             except asyncio.CancelledError:
                 continue
+        await self._state_store.set_monitor_task(None)
 
-    async def _broadcast(self, message: Dict[str, Any]) -> None:
-        await self._broadcaster.broadcast(message)
+    def _websocket_url(self) -> str:
+        return "/api/v1/pipeline/stream"
+
+    async def _broadcast_message(
+        self,
+        *,
+        run_id: str,
+        message_type: StreamMessageType,
+        data: dict[str, object],
+    ) -> None:
+        timestamp = datetime.now(timezone.utc)
+        await self._broadcaster.broadcast(
+            {
+                "type": message_type.value,
+                "data": data,
+                "timestamp": timestamp.isoformat(),
+                "run_id": run_id,
+            }
+        )

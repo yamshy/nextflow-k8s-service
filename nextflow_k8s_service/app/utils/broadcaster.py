@@ -6,37 +6,71 @@ import asyncio
 import contextlib
 import json
 import logging
-from typing import Any, Set
+from datetime import datetime, timezone
+from typing import Any, Optional, Set, TYPE_CHECKING
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:  # pragma: no cover - type checking only
+    from ..services.state_store import StateStore
+
+
+class ConnectionLimitExceeded(RuntimeError):
+    """Raised when the broadcaster has reached its connection limit."""
+
 
 class Broadcaster:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        state_store: Optional["StateStore"] = None,
+        max_clients: int = 100,
+    ) -> None:
         self._clients: Set[WebSocket] = set()
         self._lock = asyncio.Lock()
         self._pending: dict[WebSocket, asyncio.Task[None]] = {}
+        self._state_store = state_store
+        self._max_clients = max_clients
 
     async def register(self, websocket: WebSocket) -> None:
         async with self._lock:
+            if len(self._clients) >= self._max_clients:
+                raise ConnectionLimitExceeded("WebSocket connection limit reached")
             self._clients.add(websocket)
+            pending_count = len(self._clients)
             logger.debug("WebSocket %s registered", id(websocket))
+        if self._state_store:
+            await self._state_store.set_connected_clients(pending_count)
 
     async def unregister(self, websocket: WebSocket) -> None:
         async with self._lock:
             self._clients.discard(websocket)
             pending = self._pending.pop(websocket, None)
+            pending_count = len(self._clients)
             logger.debug("WebSocket %s unregistered", id(websocket))
         if pending is not None:
             pending.cancel()
+        if self._state_store:
+            await self._state_store.set_connected_clients(pending_count)
 
     async def broadcast(self, message: dict[str, Any]) -> None:
         payload = json.dumps(message, default=str)
+        timestamp_raw = message.get("timestamp")
+        broadcast_time = datetime.now(timezone.utc)
+        if isinstance(timestamp_raw, datetime):
+            broadcast_time = timestamp_raw.astimezone(timezone.utc)
+        elif isinstance(timestamp_raw, str):
+            try:
+                broadcast_time = datetime.fromisoformat(timestamp_raw.replace("Z", "+00:00")).astimezone(timezone.utc)
+            except ValueError:
+                logger.debug("Unable to parse timestamp '%s' in broadcast", timestamp_raw)
         async with self._lock:
             clients = list(self._clients)
+        if self._state_store:
+            await self._state_store.update_last_broadcast(broadcast_time)
         if not clients:
             return
 
