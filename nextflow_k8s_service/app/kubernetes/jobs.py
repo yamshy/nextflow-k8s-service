@@ -192,31 +192,26 @@ async def _create_config_map(run_id: str, config_content: str, settings: Setting
 async def create_job(run_id: str, params: PipelineParameters, settings: Settings) -> k8s_client.V1Job:
     kube = get_kubernetes_client(settings)
 
-    # Build the Nextflow config
-    # Note: Resource limits/requests are controlled via process-level directives,
-    # not through k8s.pod configuration. The k8s.pod directive is for pod-specific
-    # settings like nodeSelector, tolerations, annotations, etc.
-
-    # Parse CPU request (can be "1", "2", "500m", etc.)
-    cpu_value = settings.worker_cpu_request
-    if cpu_value.endswith("m"):
-        # Convert millicpu to decimal (e.g., "500m" -> "0.5")
-        cpu_numeric = float(cpu_value.rstrip("m")) / 1000
-    else:
-        # Use as-is (e.g., "1", "2", "0.5")
-        cpu_numeric = float(cpu_value)
-
-    # Determine if we should set CPU limits
-    # If request and limit are the same, use cpuLimits = true (simpler)
-    # Otherwise, we can only set the request via cpus directive
-    # Note: Nextflow doesn't support separate CPU limit values directly
-    use_cpu_limits = settings.worker_cpu_request == settings.worker_cpu_limit
+    # Build the Nextflow config with pod-level resource limits
+    # The k8s.pod directive allows explicit resource requests/limits configuration
+    # which is required when namespace has ResourceQuota policies
 
     nextflow_config = f"""
 process {{
     executor = 'k8s'
-    cpus = {cpu_numeric}
-    memory = '{settings.worker_memory_request}'
+
+    pod = [[
+        resources: [
+            requests: [
+                cpu: '{settings.worker_cpu_request}',
+                memory: '{settings.worker_memory_request}'
+            ],
+            limits: [
+                cpu: '{settings.worker_cpu_limit}',
+                memory: '{settings.worker_memory_limit}'
+            ]
+        ]
+    ]]
 }}
 
 k8s {{
@@ -224,7 +219,6 @@ k8s {{
     storageMountPath = '/workspace'
     namespace = '{settings.nextflow_namespace}'
     serviceAccount = '{settings.nextflow_service_account}'
-    cpuLimits = {str(use_cpu_limits).lower()}
 }}
 """
 
