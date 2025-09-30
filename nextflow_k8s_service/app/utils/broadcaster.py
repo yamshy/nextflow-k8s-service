@@ -41,7 +41,7 @@ class Broadcaster:
                 raise ConnectionLimitExceeded("WebSocket connection limit reached")
             self._clients.add(websocket)
             pending_count = len(self._clients)
-            logger.debug("WebSocket %s registered", id(websocket))
+            logger.info("WebSocket registered, total connected: %d", pending_count)
         if self._state_store:
             await self._state_store.set_connected_clients(pending_count)
 
@@ -50,7 +50,7 @@ class Broadcaster:
             self._clients.discard(websocket)
             pending = self._pending.pop(websocket, None)
             pending_count = len(self._clients)
-            logger.debug("WebSocket %s unregistered", id(websocket))
+            logger.info("WebSocket unregistered, total connected: %d", pending_count)
         if pending is not None:
             pending.cancel()
         if self._state_store:
@@ -79,10 +79,10 @@ class Broadcaster:
                 await client.send_text(payload)
             except (RuntimeError, WebSocketDisconnect):
                 # Expected: connection closed or message sent after close
-                logger.debug("WebSocket %s disconnected, unregistering", id(client))
+                logger.info("WebSocket disconnected during send, unregistering")
                 await self.unregister(client)
             except Exception:  # pragma: no cover - unexpected errors
-                logger.exception("Unexpected error sending to WebSocket %s", id(client))
+                logger.exception("Unexpected error sending to WebSocket")
                 await self.unregister(client)
 
         for client in clients:
