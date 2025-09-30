@@ -206,6 +206,12 @@ async def create_job(run_id: str, params: PipelineParameters, settings: Settings
         # Use as-is (e.g., "1", "2", "0.5")
         cpu_numeric = float(cpu_value)
 
+    # Determine if we should set CPU limits
+    # If request and limit are the same, use cpuLimits = true (simpler)
+    # Otherwise, we can only set the request via cpus directive
+    # Note: Nextflow doesn't support separate CPU limit values directly
+    use_cpu_limits = settings.worker_cpu_request == settings.worker_cpu_limit
+
     nextflow_config = f"""
 process {{
     executor = 'k8s'
@@ -218,6 +224,7 @@ k8s {{
     storageMountPath = '/workspace'
     namespace = '{settings.nextflow_namespace}'
     serviceAccount = '{settings.nextflow_service_account}'
+    cpuLimits = {str(use_cpu_limits).lower()}
 }}
 """
 
