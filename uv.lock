@@ -366,7 +366,7 @@ wheels = [
 
 [[package]]
 name = "nextflow-k8s-service"
-version = "1.4.12"
+version = "1.4.14"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
