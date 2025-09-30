@@ -196,22 +196,18 @@ async def create_job(run_id: str, params: PipelineParameters, settings: Settings
     # The k8s.pod directive allows explicit resource requests/limits configuration
     # which is required when namespace has ResourceQuota policies
 
+    # Parse CPU limit for Nextflow process directives
+    cpu_limit = settings.worker_cpu_limit
+    if cpu_limit.endswith("m"):
+        cpu_numeric = float(cpu_limit.rstrip("m")) / 1000
+    else:
+        cpu_numeric = float(cpu_limit)
+
     nextflow_config = f"""
 process {{
     executor = 'k8s'
-
-    pod = [[
-        resources: [
-            requests: [
-                cpu: '{settings.worker_cpu_request}',
-                memory: '{settings.worker_memory_request}'
-            ],
-            limits: [
-                cpu: '{settings.worker_cpu_limit}',
-                memory: '{settings.worker_memory_limit}'
-            ]
-        ]
-    ]]
+    cpus = {cpu_numeric}
+    memory = '{settings.worker_memory_limit}'
 }}
 
 k8s {{
@@ -219,6 +215,8 @@ k8s {{
     storageMountPath = '/workspace'
     namespace = '{settings.nextflow_namespace}'
     serviceAccount = '{settings.nextflow_service_account}'
+    cpuLimits = '{settings.worker_cpu_limit}'
+    memoryLimits = '{settings.worker_memory_limit}'
 }}
 """
 
