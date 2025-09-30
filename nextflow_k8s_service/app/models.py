@@ -43,11 +43,17 @@ class RunResponse(BaseModel):
     status: RunStatus
     attached: bool
     job_name: Optional[str] = None
+    websocket_url: Optional[str] = None
 
 
 class ActiveRunStatus(BaseModel):
     active: bool
     run: Optional[RunInfo] = None
+    progress_percent: Optional[float] = None
+    log_preview: list[str] = Field(default_factory=list)
+    websocket_url: Optional[str] = None
+    connected_clients: int = 0
+    last_update: Optional[datetime] = None
 
 
 class RunHistoryEntry(BaseModel):
@@ -72,3 +78,18 @@ class LogChunk(BaseModel):
     timestamp: datetime
     message: str
     stream: str = Field("stdout", description="stdout or stderr")
+
+
+class StreamMessageType(str, Enum):
+    STATUS = "status"
+    PROGRESS = "progress"
+    LOG = "log"
+    COMPLETE = "complete"
+    ERROR = "error"
+
+
+class StreamMessage(BaseModel):
+    type: StreamMessageType
+    data: Dict[str, Any]
+    timestamp: datetime
+    run_id: str

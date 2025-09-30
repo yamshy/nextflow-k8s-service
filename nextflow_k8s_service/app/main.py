@@ -30,9 +30,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = get_settings()
     logger.info("Initializing service with namespace '%s'", settings.nextflow_namespace)
 
-    broadcaster = Broadcaster()
     state_store = await StateStore.create(settings)
-    log_streamer = LogStreamer(settings=settings, broadcaster=broadcaster)
+    broadcaster = Broadcaster(
+        state_store=state_store,
+        max_clients=settings.max_websocket_connections,
+    )
+    log_streamer = LogStreamer(
+        settings=settings,
+        broadcaster=broadcaster,
+        state_store=state_store,
+    )
     pipeline_manager = PipelineManager(
         settings=settings,
         state_store=state_store,
