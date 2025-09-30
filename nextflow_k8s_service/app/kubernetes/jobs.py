@@ -66,6 +66,18 @@ def _build_job_manifest(
     nextflow_core_options = {"profile", "revision", "resume", "with-docker", "with-singularity", "with-conda"}
     boolean_core_options = {"resume", "with-docker", "with-singularity", "with-conda"}
 
+    # Always add k8s profile since we're running on Kubernetes
+    # If user specified other profiles (e.g., test), append k8s to the list
+    if "profile" in params.parameters:
+        existing = params.parameters["profile"]
+        if isinstance(existing, str):
+            profiles = [p.strip() for p in existing.split(",")]
+            if "k8s" not in profiles:
+                profiles.append("k8s")
+            params.parameters["profile"] = ",".join(profiles)
+    else:
+        params.parameters["profile"] = "k8s"
+
     # Set default outdir only for nf-core pipelines (required by most of them)
     if _is_nf_core_pipeline(params.pipeline) and "outdir" not in params.parameters:
         params.parameters["outdir"] = "/workspace/results"
