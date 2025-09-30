@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     environment: str = Field(default="development")
     nextflow_namespace: str = Field(default="nextflow")
     nextflow_service_account: str = Field(default="nextflow-runner")
-    nextflow_image: str = Field(default="nextflow/nextflow:latest")
+    nextflow_image: str = Field(default="nextflow/nextflow:25.04.7")
     job_active_deadline_seconds: int = Field(default=3600)
     job_backoff_limit: int = Field(default=0)
     job_ttl_seconds_after_finished: int = Field(default=900)
