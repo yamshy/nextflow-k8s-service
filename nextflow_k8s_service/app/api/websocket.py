@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -72,6 +71,8 @@ async def pipeline_stream(websocket: WebSocket) -> None:
         pass
     finally:
         keepalive_task.cancel()
-        with contextlib.suppress(Exception):
+        try:
             await keepalive_task
+        except asyncio.CancelledError:
+            pass  # Expected when keepalive task is cancelled
         await broadcaster.unregister(websocket)
