@@ -112,52 +112,68 @@ async def delete_job(job_name: str, settings: Settings, grace_period_seconds: Op
             raise
 
 
-async def get_job_status(job_name: str, settings: Settings) -> RunStatus:
+async def get_job_status(job_name: str, settings: Settings, *, max_retries: int = 3) -> RunStatus:
+    """Get job status with retry logic to handle Kubernetes update race conditions.
+
+    Args:
+        job_name: Name of the Kubernetes job
+        settings: Application settings
+        max_retries: Number of times to retry if status is UNKNOWN (default: 3)
+    """
     kube = get_kubernetes_client(settings)
 
     def _read() -> k8s_client.V1Job:
         return kube.batch.read_namespaced_job(name=job_name, namespace=settings.nextflow_namespace)
 
-    try:
-        job = await asyncio.to_thread(_read)
-    except ApiException as exc:
-        if exc.status == 404:
+    for attempt in range(max_retries):
+        try:
+            job = await asyncio.to_thread(_read)
+        except ApiException as exc:
+            if exc.status == 404:
+                return RunStatus.UNKNOWN
+            raise
+
+        status = job.status
+        if status is None:
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1.0)
+                continue
             return RunStatus.UNKNOWN
-        raise
 
-    status = job.status
-    if status is None:
-        return RunStatus.UNKNOWN
+        # Check conditions first (most authoritative when present)
+        if status.conditions:
+            for condition in status.conditions:
+                if condition.type == "Complete" and condition.status == "True":
+                    return RunStatus.SUCCEEDED
+                if condition.type == "Failed" and condition.status == "True":
+                    return RunStatus.FAILED
 
-    # Check conditions first (most authoritative when present)
-    if status.conditions:
-        for condition in status.conditions:
-            if condition.type == "Complete" and condition.status == "True":
-                return RunStatus.SUCCEEDED
-            if condition.type == "Failed" and condition.status == "True":
-                return RunStatus.FAILED
+        # Check active before succeeded/failed to handle retrying jobs correctly
+        # A job with active > 0 is still running/retrying, even if failed > 0
+        if status.active and status.active > 0:
+            return RunStatus.RUNNING
 
-    # Check active before succeeded/failed to handle retrying jobs correctly
-    # A job with active > 0 is still running/retrying, even if failed > 0
-    if status.active and status.active > 0:
-        return RunStatus.RUNNING
+        # Only check terminal counters once job is no longer active
+        if status.succeeded and status.succeeded > 0:
+            return RunStatus.SUCCEEDED
+        if status.failed and status.failed > 0:
+            return RunStatus.FAILED
 
-    # Only check terminal counters once job is no longer active
-    if status.succeeded and status.succeeded > 0:
-        return RunStatus.SUCCEEDED
-    if status.failed and status.failed > 0:
-        return RunStatus.FAILED
+        # Fallback: check pod status if job status fields not yet updated (race condition)
+        if status.active == 0:
+            pods = await list_job_pods(job_name=job_name, settings=settings)
+            if pods:
+                # Check first pod status (jobs create one pod at a time)
+                pod = pods[0]
+                if pod.status and pod.status.phase == "Succeeded":
+                    return RunStatus.SUCCEEDED
+                if pod.status and pod.status.phase == "Failed":
+                    return RunStatus.FAILED
 
-    # Fallback: check pod status if job status fields not yet updated (race condition)
-    if status.active == 0:
-        pods = await list_job_pods(job_name=job_name, settings=settings)
-        if pods:
-            # Check first pod status (jobs create one pod at a time)
-            pod = pods[0]
-            if pod.status and pod.status.phase == "Succeeded":
-                return RunStatus.SUCCEEDED
-            if pod.status and pod.status.phase == "Failed":
-                return RunStatus.FAILED
+        # If we got UNKNOWN and this isn't the last attempt, wait and retry
+        if attempt < max_retries - 1:
+            await asyncio.sleep(1.0)
+            continue
 
     return RunStatus.UNKNOWN
 
