@@ -45,6 +45,7 @@ def _build_job_manifest(
 
     # Nextflow core options use single dash, pipeline parameters use double dash
     nextflow_core_options = {"profile", "revision", "resume", "with-docker", "with-singularity", "with-conda"}
+    boolean_core_options = {"resume", "with-docker", "with-singularity", "with-conda"}
 
     args = ["run", params.pipeline]
     for key, value in params.parameters.items():
@@ -52,8 +53,19 @@ def _build_job_manifest(
             # Special handling for revision shorthand
             args.extend(["-r", str(value)])
         elif key in nextflow_core_options:
-            # Core Nextflow options use single dash
-            args.extend([f"-{key}", str(value)])
+            flag = f"-{key}"
+            if isinstance(value, bool):
+                if value:
+                    # Boolean core options should be emitted as flags without a value
+                    args.append(flag)
+                continue
+
+            if key in boolean_core_options and not value:
+                # Skip falsy values for boolean-style core options
+                continue
+
+            # Core Nextflow options use single dash and accept values when provided
+            args.extend([flag, str(value)])
         else:
             # Pipeline parameters use double dash
             args.extend([f"--{key}", str(value)])
