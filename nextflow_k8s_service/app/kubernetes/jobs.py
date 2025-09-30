@@ -66,18 +66,6 @@ def _build_job_manifest(
     nextflow_core_options = {"profile", "revision", "resume", "with-docker", "with-singularity", "with-conda"}
     boolean_core_options = {"resume", "with-docker", "with-singularity", "with-conda"}
 
-    # Always add k8s profile since we're running on Kubernetes
-    # If user specified other profiles (e.g., test), append k8s to the list
-    if "profile" in params.parameters:
-        existing = params.parameters["profile"]
-        if isinstance(existing, str):
-            profiles = [p.strip() for p in existing.split(",")]
-            if "k8s" not in profiles:
-                profiles.append("k8s")
-            params.parameters["profile"] = ",".join(profiles)
-    else:
-        params.parameters["profile"] = "k8s"
-
     # Set default outdir only for nf-core pipelines (required by most of them)
     if _is_nf_core_pipeline(params.pipeline) and "outdir" not in params.parameters:
         params.parameters["outdir"] = "/workspace/results"
@@ -105,6 +93,12 @@ def _build_job_manifest(
             # Pipeline parameters use double dash
             args.extend([f"--{key}", str(value)])
 
+    # Configure volume mount for shared PVC
+    volume_mount = k8s_client.V1VolumeMount(
+        name="nextflow-work",
+        mount_path="/workspace",
+    )
+
     container = k8s_client.V1Container(
         name="nextflow",
         image=settings.nextflow_image,
@@ -112,7 +106,19 @@ def _build_job_manifest(
         args=args,
         env=[
             k8s_client.V1EnvVar(name="NXF_WORK", value=params.workdir or "/workspace"),
+            k8s_client.V1EnvVar(name="NXF_EXECUTOR", value="k8s"),
+            k8s_client.V1EnvVar(name="NXF_K8S_STORAGE_CLAIM_NAME", value="nextflow-work-pvc"),
+            k8s_client.V1EnvVar(name="NXF_K8S_STORAGE_MOUNT_PATH", value="/workspace"),
         ],
+        volume_mounts=[volume_mount],
+    )
+
+    # Define the PVC volume
+    volume = k8s_client.V1Volume(
+        name="nextflow-work",
+        persistent_volume_claim=k8s_client.V1PersistentVolumeClaimVolumeSource(
+            claim_name="nextflow-work-pvc",
+        ),
     )
 
     template = k8s_client.V1PodTemplateSpec(
@@ -121,6 +127,7 @@ def _build_job_manifest(
             restart_policy="Never",
             service_account_name=settings.nextflow_service_account,
             containers=[container],
+            volumes=[volume],
         ),
     )
 
