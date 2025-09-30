@@ -90,6 +90,7 @@ class LogStreamer:
                     await self._sleep(stop_event)
                     continue
 
+                logger.info("Fetching logs from %d pod(s) for run %s", len(pods), run_id)
                 preview_lines: list[str] = []
                 for pod in pods:
                     metadata = getattr(pod, "metadata", None)
@@ -108,7 +109,7 @@ class LogStreamer:
                                 since_time=since_time,
                             )
                         except Exception as exc:  # pragma: no cover - defensive
-                            logger.debug(
+                            logger.warning(
                                 "Unable to fetch logs for %s/%s: %s",
                                 pod_name,
                                 container_name,
@@ -119,7 +120,9 @@ class LogStreamer:
                         if not logs:
                             continue
 
-                        for line in logs.splitlines():
+                        log_lines = logs.splitlines()
+                        logger.info("Fetched %d log lines from %s/%s", len(log_lines), pod_name, container_name)
+                        for line in log_lines:
                             timestamp, message = self._split_timestamp(line)
                             effective_timestamp = timestamp or datetime.now(timezone.utc)
                             self._log_cursors[cursor_key] = effective_timestamp
