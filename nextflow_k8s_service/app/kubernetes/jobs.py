@@ -119,6 +119,16 @@ def _build_job_manifest(
             k8s_client.V1EnvVar(name="NXF_WORK", value=params.workdir or "/workspace"),
         ],
         volume_mounts=[pvc_volume_mount, config_volume_mount],
+        resources=k8s_client.V1ResourceRequirements(
+            requests={
+                "cpu": settings.controller_cpu_request,
+                "memory": settings.controller_memory_request,
+            },
+            limits={
+                "cpu": settings.controller_cpu_limit,
+                "memory": settings.controller_memory_limit,
+            },
+        ),
     )
 
     # Define volumes
@@ -186,6 +196,8 @@ async def create_job(run_id: str, params: PipelineParameters, settings: Settings
     nextflow_config = f"""
 process {{
     executor = 'k8s'
+    cpus = 1
+    memory = '2 GB'
 }}
 
 k8s {{
@@ -193,6 +205,16 @@ k8s {{
     storageMountPath = '/workspace'
     namespace = '{settings.nextflow_namespace}'
     serviceAccount = '{settings.nextflow_service_account}'
+    pod {{
+        [resourceLimits: [
+            cpu: '{settings.worker_cpu_limit}',
+            memory: '{settings.worker_memory_limit}'
+        ]]
+        [resourceRequests: [
+            cpu: '{settings.worker_cpu_request}',
+            memory: '{settings.worker_memory_request}'
+        ]]
+    }}
 }}
 """
 

@@ -30,6 +30,18 @@ class Settings(BaseSettings):
     kube_context: Optional[str] = Field(default=None)
     allowed_origins: list[str] = Field(default_factory=lambda: ["*"])
 
+    # Resource limits for Nextflow controller pod
+    controller_cpu_request: str = Field(default="500m")
+    controller_cpu_limit: str = Field(default="2")
+    controller_memory_request: str = Field(default="1Gi")
+    controller_memory_limit: str = Field(default="4Gi")
+
+    # Resource limits for Nextflow worker pods (pipeline tasks)
+    worker_cpu_request: str = Field(default="1")
+    worker_cpu_limit: str = Field(default="4")
+    worker_memory_request: str = Field(default="2Gi")
+    worker_memory_limit: str = Field(default="8Gi")
+
 
 @lru_cache()
 def get_settings() -> Settings:
