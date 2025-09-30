@@ -233,13 +233,19 @@ async def get_pod_log_stream(
     kube = get_kubernetes_client(settings)
 
     def _logs() -> str:
-        return kube.core.read_namespaced_pod_log(
-            name=pod_name,
-            namespace=settings.nextflow_namespace,
-            container=container,
-            since_time=since_time,
-            follow=False,
-            timestamps=True,
-        )
+        kwargs = {
+            "name": pod_name,
+            "namespace": settings.nextflow_namespace,
+            "container": container,
+            "follow": False,
+            "timestamps": True,
+        }
+        if since_time:
+            # Calculate seconds since the provided time
+            elapsed = (datetime.now(timezone.utc) - since_time).total_seconds()
+            # Use since_seconds parameter (must be positive)
+            if elapsed > 0:
+                kwargs["since_seconds"] = int(elapsed)
+        return kube.core.read_namespaced_pod_log(**kwargs)
 
     return await asyncio.to_thread(_logs)
