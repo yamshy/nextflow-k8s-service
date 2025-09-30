@@ -183,17 +183,17 @@ async def create_job(run_id: str, params: PipelineParameters, settings: Settings
     kube = get_kubernetes_client(settings)
 
     # Build the Nextflow config
-    nextflow_config = """
-process {
+    nextflow_config = f"""
+process {{
     executor = 'k8s'
-}
+}}
 
-k8s {
+k8s {{
     storageClaimName = 'nextflow-work-pvc'
     storageMountPath = '/workspace'
-    namespace = 'nextflow'
-    serviceAccount = 'nextflow-runner'
-}
+    namespace = '{settings.nextflow_namespace}'
+    serviceAccount = '{settings.nextflow_service_account}'
+}}
 """
 
     # Create ConfigMap first
