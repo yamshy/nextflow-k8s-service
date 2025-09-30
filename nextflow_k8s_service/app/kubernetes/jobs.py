@@ -17,6 +17,25 @@ from .client import get_kubernetes_client
 logger = logging.getLogger(__name__)
 
 
+def _is_nf_core_pipeline(pipeline: str) -> bool:
+    """Return True if the given pipeline refers to an nf-core workflow."""
+
+    normalized = pipeline.strip().lower()
+    nf_core_prefixes = (
+        "nf-core/",
+        "https://github.com/nf-core/",
+        "http://github.com/nf-core/",
+        "git@github.com:nf-core/",
+        "github.com/nf-core/",
+        "gh:nf-core/",
+        "https://nf-co.re/",
+        "http://nf-co.re/",
+        "nf-co.re/",
+    )
+
+    return any(normalized.startswith(prefix) for prefix in nf_core_prefixes)
+
+
 def _job_labels(run_id: str) -> dict[str, str]:
     return {
         "app": "nextflow-pipeline",
@@ -47,8 +66,8 @@ def _build_job_manifest(
     nextflow_core_options = {"profile", "revision", "resume", "with-docker", "with-singularity", "with-conda"}
     boolean_core_options = {"resume", "with-docker", "with-singularity", "with-conda"}
 
-    # Set default outdir if not provided (required by most nf-core pipelines)
-    if "outdir" not in params.parameters:
+    # Set default outdir only for nf-core pipelines (required by most of them)
+    if _is_nf_core_pipeline(params.pipeline) and "outdir" not in params.parameters:
         params.parameters["outdir"] = "/workspace/results"
 
     args = ["run", params.pipeline]
