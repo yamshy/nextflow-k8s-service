@@ -205,16 +205,16 @@ k8s {{
     storageMountPath = '/workspace'
     namespace = '{settings.nextflow_namespace}'
     serviceAccount = '{settings.nextflow_service_account}'
-    pod {{
+    pod = [
         [resourceLimits: [
             cpu: '{settings.worker_cpu_limit}',
             memory: '{settings.worker_memory_limit}'
-        ]]
+        ]],
         [resourceRequests: [
             cpu: '{settings.worker_cpu_request}',
             memory: '{settings.worker_memory_request}'
         ]]
-    }}
+    ]
 }}
 """
 
