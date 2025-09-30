@@ -117,6 +117,66 @@ async def test_start_or_attach_run_creates_new_job(mocker) -> None:
 
 
 @pytest.mark.asyncio
+async def test_start_or_attach_run_broadcasts_complete_on_job_creation_failure(mocker) -> None:
+    settings = Settings()
+    state_store: StateStore = mocker.AsyncMock(spec=StateStore)
+    state_store.get_active_run.return_value = ActiveRunStatus(active=False, run=None)
+    state_store.acquire_active_run.return_value = True
+    state_store.update_progress.return_value = (0.0, None, None)
+
+    run_info = RunInfo(
+        run_id="feedbead1234",
+        status=RunStatus.FAILED,
+        started_at=datetime.now(timezone.utc),
+        finished_at=None,
+        job_name="nextflow-run-feedbead1234",
+        message="boom",
+    )
+    state_store.finish_active_run.return_value = run_info
+
+    log_streamer: LogStreamer = mocker.AsyncMock(spec=LogStreamer)
+    broadcaster: Broadcaster = mocker.AsyncMock(spec=Broadcaster)
+
+    manager = PipelineManager(
+        settings=settings,
+        state_store=state_store,
+        log_streamer=log_streamer,
+        broadcaster=broadcaster,
+    )
+
+    fake_uuid = mocker.Mock(hex="feedbead12345678deadbeef")
+    mocker.patch("app.services.pipeline_manager.uuid.uuid4", return_value=fake_uuid)
+
+    creation_error = RuntimeError("boom")
+    mocker.patch("app.services.pipeline_manager.jobs.create_job", side_effect=creation_error)
+
+    run_request = RunRequest(
+        parameters=PipelineParameters(pipeline="nf", parameters={}, workdir=None),
+        triggered_by="tester",
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        await manager.start_or_attach_run(run_request)
+
+    assert str(excinfo.value) == "boom"
+
+    state_store.finish_active_run.assert_awaited_once_with(RunStatus.FAILED, message="boom")
+
+    broadcast_calls = broadcaster.broadcast.await_args_list
+    assert len(broadcast_calls) >= 3
+    error_payload = broadcast_calls[1].args[0]
+    assert error_payload["type"] == StreamMessageType.ERROR.value
+    assert error_payload["data"]["stage"] == "job_creation"
+    assert error_payload["data"]["message"] == "boom"
+
+    complete_payload = broadcast_calls[2].args[0]
+    assert complete_payload["type"] == StreamMessageType.COMPLETE.value
+    assert complete_payload["data"]["status"] == RunStatus.FAILED.value
+    assert complete_payload["data"]["run"]["run_id"] == "feedbead1234"
+    assert complete_payload["run_id"] == "feedbead1234"
+
+
+@pytest.mark.asyncio
 async def test_start_or_attach_run_cleans_up_on_monitor_failure(mocker) -> None:
     settings = Settings()
     state_store: StateStore = mocker.AsyncMock(spec=StateStore)
