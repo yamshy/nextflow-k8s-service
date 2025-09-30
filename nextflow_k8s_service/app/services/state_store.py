@@ -6,7 +6,7 @@ import logging
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Deque, Optional
+from typing import Deque, Iterable, List, Optional, Tuple
 
 from redis.asyncio import Redis
 
@@ -37,6 +37,14 @@ class StateStore:
         self._active_run: Optional[_RunRecord] = None
         self._history: Deque[_RunRecord] = deque(maxlen=settings.run_history_limit)
         self._redis_lock_key = "nextflow:pipeline:active-run"
+        self._monitor_task: Optional[asyncio.Task[None]] = None
+        self._last_broadcast: Optional[datetime] = None
+        self._connected_clients: int = 0
+        self._recent_logs: Deque[str] = deque(maxlen=200)
+        self._progress_percent: float = 0.0
+        self._completed_processes: Optional[int] = None
+        self._total_processes: Optional[int] = None
+        self._last_progress_update: Optional[datetime] = None
 
     @classmethod
     async def create(cls, settings: Settings) -> "StateStore":
@@ -96,6 +104,7 @@ class StateStore:
             if not acquired:
                 return False
             await self._write_active_state(record)
+            await self._reset_runtime_state_locked()
             return True
 
     async def _write_active_state(self, record: _RunRecord) -> None:
@@ -156,6 +165,7 @@ class StateStore:
                 record.info.message = message
             self._history.appendleft(record)
             self._active_run = None
+            await self._reset_runtime_state_locked()
             await self._purge_expired_history()
             await self._clear_active_state()
             return record.info
@@ -197,3 +207,82 @@ class StateStore:
 
     async def cancel_active_run(self, message: Optional[str] = None) -> Optional[RunInfo]:
         return await self.finish_active_run(RunStatus.CANCELLED, message)
+
+    async def set_monitor_task(self, task: Optional[asyncio.Task[None]]) -> None:
+        async with self._lock:
+            self._monitor_task = task
+
+    async def get_monitor_task(self) -> Optional[asyncio.Task[None]]:
+        async with self._lock:
+            return self._monitor_task
+
+    async def update_last_broadcast(self, when: datetime) -> None:
+        async with self._lock:
+            self._last_broadcast = when
+
+    async def get_last_broadcast(self) -> Optional[datetime]:
+        async with self._lock:
+            return self._last_broadcast
+
+    async def set_connected_clients(self, count: int) -> None:
+        async with self._lock:
+            self._connected_clients = max(0, count)
+
+    async def get_connected_clients(self) -> int:
+        async with self._lock:
+            return self._connected_clients
+
+    async def append_log_lines(self, lines: Iterable[str]) -> None:
+        async with self._lock:
+            for line in lines:
+                self._recent_logs.append(line)
+
+    async def get_recent_logs(self, limit: int = 10) -> List[str]:
+        async with self._lock:
+            return list(self._recent_logs)[-limit:]
+
+    async def update_progress(
+        self,
+        *,
+        completed: Optional[int] = None,
+        total: Optional[int] = None,
+        percent: Optional[float] = None,
+    ) -> Tuple[float, Optional[int], Optional[int]]:
+        async with self._lock:
+            if completed is not None:
+                self._completed_processes = max(0, completed)
+            if total is not None:
+                self._total_processes = max(total, 0) if total is not None else self._total_processes
+            if percent is not None:
+                self._progress_percent = max(0.0, min(100.0, percent))
+            else:
+                if self._total_processes and self._total_processes > 0 and self._completed_processes is not None:
+                    computed = (self._completed_processes / self._total_processes) * 100.0
+                    self._progress_percent = max(0.0, min(100.0, computed))
+                elif self._completed_processes:
+                    self._progress_percent = 100.0
+                else:
+                    self._progress_percent = 0.0
+            self._last_progress_update = _utcnow()
+            return self._progress_percent, self._completed_processes, self._total_processes
+
+    async def get_progress(self) -> Tuple[float, Optional[int], Optional[int]]:
+        async with self._lock:
+            return self._progress_percent, self._completed_processes, self._total_processes
+
+    async def get_last_progress_update(self) -> Optional[datetime]:
+        async with self._lock:
+            return self._last_progress_update
+
+    async def clear_runtime_state(self) -> None:
+        async with self._lock:
+            await self._reset_runtime_state_locked()
+
+    async def _reset_runtime_state_locked(self) -> None:
+        self._monitor_task = None
+        self._last_broadcast = None
+        self._recent_logs.clear()
+        self._progress_percent = 0.0
+        self._completed_processes = None
+        self._total_processes = None
+        self._last_progress_update = None
