@@ -43,12 +43,19 @@ def _build_job_manifest(
         labels=_job_labels(run_id),
     )
 
+    # Nextflow core options use single dash, pipeline parameters use double dash
+    nextflow_core_options = {"profile", "revision", "resume", "with-docker", "with-singularity", "with-conda"}
+
     args = ["run", params.pipeline]
     for key, value in params.parameters.items():
-        # Nextflow uses -r for revision, not --revision
         if key == "revision":
+            # Special handling for revision shorthand
             args.extend(["-r", str(value)])
+        elif key in nextflow_core_options:
+            # Core Nextflow options use single dash
+            args.extend([f"-{key}", str(value)])
         else:
+            # Pipeline parameters use double dash
             args.extend([f"--{key}", str(value)])
 
     container = k8s_client.V1Container(
