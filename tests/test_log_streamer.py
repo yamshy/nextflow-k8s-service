@@ -1,9 +1,6 @@
 import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
-import asyncio
-from datetime import datetime, timezone
-from types import SimpleNamespace
 
 import pytest
 from pytest_mock import MockerFixture
