@@ -70,7 +70,12 @@ def _build_job_manifest(
     if _is_nf_core_pipeline(params.pipeline) and "outdir" not in params.parameters:
         params.parameters["outdir"] = "/workspace/results"
 
-    args = ["run", params.pipeline]
+    args = [
+        "run",
+        params.pipeline,
+        "-c",
+        "/etc/nextflow/nextflow.config",
+    ]
     for key, value in params.parameters.items():
         if key == "revision":
             # Special handling for revision shorthand
@@ -93,10 +98,16 @@ def _build_job_manifest(
             # Pipeline parameters use double dash
             args.extend([f"--{key}", str(value)])
 
-    # Configure volume mount for shared PVC
-    volume_mount = k8s_client.V1VolumeMount(
+    # Configure volume mounts
+    pvc_volume_mount = k8s_client.V1VolumeMount(
         name="nextflow-work",
         mount_path="/workspace",
+    )
+
+    config_volume_mount = k8s_client.V1VolumeMount(
+        name="nextflow-config",
+        mount_path="/etc/nextflow",
+        read_only=True,
     )
 
     container = k8s_client.V1Container(
@@ -106,18 +117,22 @@ def _build_job_manifest(
         args=args,
         env=[
             k8s_client.V1EnvVar(name="NXF_WORK", value=params.workdir or "/workspace"),
-            k8s_client.V1EnvVar(name="NXF_EXECUTOR", value="k8s"),
-            k8s_client.V1EnvVar(name="NXF_K8S_STORAGE_CLAIM_NAME", value="nextflow-work-pvc"),
-            k8s_client.V1EnvVar(name="NXF_K8S_STORAGE_MOUNT_PATH", value="/workspace"),
         ],
-        volume_mounts=[volume_mount],
+        volume_mounts=[pvc_volume_mount, config_volume_mount],
     )
 
-    # Define the PVC volume
-    volume = k8s_client.V1Volume(
+    # Define volumes
+    pvc_volume = k8s_client.V1Volume(
         name="nextflow-work",
         persistent_volume_claim=k8s_client.V1PersistentVolumeClaimVolumeSource(
             claim_name="nextflow-work-pvc",
+        ),
+    )
+
+    config_volume = k8s_client.V1Volume(
+        name="nextflow-config",
+        config_map=k8s_client.V1ConfigMapVolumeSource(
+            name=f"nextflow-config-{run_id}",
         ),
     )
 
@@ -127,7 +142,7 @@ def _build_job_manifest(
             restart_policy="Never",
             service_account_name=settings.nextflow_service_account,
             containers=[container],
-            volumes=[volume],
+            volumes=[pvc_volume, config_volume],
         ),
     )
 
@@ -141,8 +156,49 @@ def _build_job_manifest(
     return k8s_client.V1Job(api_version="batch/v1", kind="Job", metadata=metadata, spec=spec)
 
 
+async def _create_config_map(run_id: str, config_content: str, settings: Settings) -> None:
+    """Create a ConfigMap containing the Nextflow configuration."""
+    kube = get_kubernetes_client(settings)
+
+    config_map = k8s_client.V1ConfigMap(
+        metadata=k8s_client.V1ObjectMeta(
+            name=f"nextflow-config-{run_id}",
+            labels=_job_labels(run_id),
+        ),
+        data={"nextflow.config": config_content},
+    )
+
+    def _create() -> k8s_client.V1ConfigMap:
+        return kube.core.create_namespaced_config_map(namespace=settings.nextflow_namespace, body=config_map)
+
+    try:
+        await asyncio.to_thread(_create)
+        logger.info("Created ConfigMap nextflow-config-%s", run_id)
+    except ApiException as exc:
+        logger.exception("Failed to create ConfigMap for run %s: %s", run_id, exc)
+        raise
+
+
 async def create_job(run_id: str, params: PipelineParameters, settings: Settings) -> k8s_client.V1Job:
     kube = get_kubernetes_client(settings)
+
+    # Build the Nextflow config
+    nextflow_config = """
+process {
+    executor = 'k8s'
+}
+
+k8s {
+    storageClaimName = 'nextflow-work-pvc'
+    storageMountPath = '/workspace'
+    namespace = 'nextflow'
+    serviceAccount = 'nextflow-runner'
+}
+"""
+
+    # Create ConfigMap first
+    await _create_config_map(run_id, nextflow_config, settings)
+
     job_manifest = _build_job_manifest(run_id=run_id, params=params, settings=settings)
 
     def _create() -> k8s_client.V1Job:
@@ -154,7 +210,30 @@ async def create_job(run_id: str, params: PipelineParameters, settings: Settings
         return job
     except ApiException as exc:
         logger.exception("Failed to create job for run %s: %s", run_id, exc)
+        # Clean up the ConfigMap if job creation fails
+        await _delete_config_map(run_id, settings)
         raise
+
+
+async def _delete_config_map(run_id: str, settings: Settings) -> None:
+    """Delete the ConfigMap for a run."""
+    kube = get_kubernetes_client(settings)
+    config_map_name = f"nextflow-config-{run_id}"
+
+    def _delete() -> None:
+        kube.core.delete_namespaced_config_map(
+            name=config_map_name,
+            namespace=settings.nextflow_namespace,
+        )
+
+    try:
+        await asyncio.to_thread(_delete)
+        logger.info("Deleted ConfigMap %s", config_map_name)
+    except ApiException as exc:
+        if exc.status == 404:
+            logger.warning("ConfigMap %s already gone", config_map_name)
+        else:
+            logger.warning("Failed to delete ConfigMap %s: %s", config_map_name, exc)
 
 
 async def delete_job(job_name: str, settings: Settings, grace_period_seconds: Optional[int] = None) -> None:
@@ -173,6 +252,11 @@ async def delete_job(job_name: str, settings: Settings, grace_period_seconds: Op
     try:
         await asyncio.to_thread(_delete)
         logger.info("Deleted job %s", job_name)
+
+        # Extract run_id from job_name (format: nextflow-run-{run_id})
+        if job_name.startswith("nextflow-run-"):
+            run_id = job_name.replace("nextflow-run-", "")
+            await _delete_config_map(run_id, settings)
     except ApiException as exc:
         if exc.status == 404:
             logger.warning("Job %s already gone", job_name)
