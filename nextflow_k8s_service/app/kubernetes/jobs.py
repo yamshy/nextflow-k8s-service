@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from kubernetes import client as k8s_client
@@ -22,6 +22,14 @@ def _job_labels(run_id: str) -> dict[str, str]:
         "app": "nextflow-pipeline",
         "run-id": run_id,
     }
+
+
+def _pod_sort_key(pod: k8s_client.V1Pod) -> datetime:
+    if pod.status and pod.status.start_time:
+        return pod.status.start_time
+    if pod.metadata and pod.metadata.creation_timestamp:
+        return pod.metadata.creation_timestamp
+    return datetime.min.replace(tzinfo=timezone.utc)
 
 
 def _build_job_manifest(
@@ -149,11 +157,16 @@ async def get_job_status(job_name: str, settings: Settings) -> RunStatus:
         return RunStatus.FAILED
 
     # Fallback: check pod status if job status fields not yet updated (race condition)
-    if status.active == 0:
+    if status.active is None or status.active == 0:
         pods = await list_job_pods(job_name=job_name, settings=settings)
         if pods:
-            # Check first pod status (jobs create one pod at a time)
-            pod = pods[0]
+            terminal_pods = [
+                pod
+                for pod in pods
+                if pod.status and pod.status.phase in {"Succeeded", "Failed"}
+            ]
+            latest_pod = max(terminal_pods or pods, key=_pod_sort_key)
+            pod = latest_pod
             if pod.status and pod.status.phase == "Succeeded":
                 return RunStatus.SUCCEEDED
             if pod.status and pod.status.phase == "Failed":
