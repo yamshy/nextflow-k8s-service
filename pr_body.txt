@@ -1,0 +1,35 @@
+## Summary
+Fixes the Nextflow configuration to properly set resource limits using `k8s.cpuLimits` and `k8s.memoryLimits` instead of invalid `pod` directive syntax.
+
+## Why
+v1.8.1 introduced a bug where the `pod` directive was used incorrectly:
+```groovy
+pod = [[resources: ...]]  # Invalid - "Unknown pod options: [resources:...]"
+```
+
+The `pod` directive doesn't accept a `resources` key. Instead, Nextflow provides `cpuLimits` and `memoryLimits` settings in the `k8s` scope.
+
+## Implementation
+```groovy
+process {
+    executor = 'k8s'
+    cpus = 1          # Sets the CPU limit
+    memory = '1Gi'    # Sets the memory limit
+}
+
+k8s {
+    cpuLimits = '1'          # Enforces CPU limits on pods
+    memoryLimits = '1Gi'     # Enforces memory limits on pods
+}
+```
+
+This approach:
+1. Sets process-level resource requirements
+2. Enables limit enforcement via `cpuLimits` and `memoryLimits`
+3. Satisfies ResourceQuota requirements
+
+## Test Plan
+- [x] All tests pass
+- [ ] Deploy and verify workflows run successfully without "Unknown pod options" error
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
