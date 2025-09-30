@@ -1,4 +1,5 @@
 """WebSocket endpoints for real-time pipeline updates."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -18,10 +19,12 @@ async def pipeline_stream(websocket: WebSocket) -> None:
     await broadcaster.register(websocket)
 
     status = await manager.current_status()
-    await websocket.send_json({
-        "type": "initial_status",
-        "payload": status.model_dump(),
-    })
+    await websocket.send_json(
+        {
+            "type": "initial_status",
+            "payload": status.model_dump(mode="json"),
+        }
+    )
 
     try:
         while True:

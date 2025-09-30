@@ -78,9 +78,7 @@ async def test_stream_loop_emits_logs_from_all_containers(mocker: MockerFixture)
     streamer = LogStreamer(settings=settings, broadcaster=broadcaster)
     stop_event = asyncio.Event()
 
-    stream_task = asyncio.create_task(
-        streamer._stream_loop(run_id="run-1", job_name="job-123", stop_event=stop_event)
-    )
+    stream_task = asyncio.create_task(streamer._stream_loop(run_id="run-1", job_name="job-123", stop_event=stop_event))
 
     await asyncio.wait_for(broadcaster.emitted.wait(), timeout=1)
     stop_event.set()
@@ -89,9 +87,7 @@ async def test_stream_loop_emits_logs_from_all_containers(mocker: MockerFixture)
     messages = [message["payload"]["message"] for message in broadcaster.messages]
     assert messages == ["main log", "init-setup log", "debugger log"]
 
-    containers_seen = {
-        (call.kwargs["pod_name"], call.kwargs["container"]) for call in get_log_mock.await_args_list
-    }
+    containers_seen = {(call.kwargs["pod_name"], call.kwargs["container"]) for call in get_log_mock.await_args_list}
     assert containers_seen == {
         ("pod-1", "main"),
         ("pod-1", "init-setup"),

@@ -1,4 +1,5 @@
 """FastAPI application entrypoint for the Nextflow pipeline controller service."""
+
 import logging
 from contextlib import asynccontextmanager
 from importlib.metadata import version

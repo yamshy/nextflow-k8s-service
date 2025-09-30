@@ -1,4 +1,5 @@
 """High-level orchestration for Nextflow pipeline execution."""
+
 from __future__ import annotations
 
 import asyncio
@@ -70,13 +71,15 @@ class PipelineManager:
                 )
             raise RuntimeError("Unable to acquire pipeline lock")
 
-        await self._broadcast({
-            "type": "run_status",
-            "payload": {
-                "run_id": run_id,
-                "status": RunStatus.STARTING,
-            },
-        })
+        await self._broadcast(
+            {
+                "type": "run_status",
+                "payload": {
+                    "run_id": run_id,
+                    "status": RunStatus.STARTING,
+                },
+            }
+        )
 
         try:
             job = await jobs.create_job(run_id=run_id, params=request.parameters, settings=self._settings)
@@ -110,7 +113,7 @@ class PipelineManager:
                     "payload": {
                         "run_id": run_id,
                         "status": RunStatus.FAILED,
-                        "run": run_info.model_dump() if run_info else None,
+                        "run": run_info.model_dump(mode="json") if run_info else None,
                     },
                 }
             )
@@ -129,13 +132,15 @@ class PipelineManager:
     async def _monitor_run(self, *, run_id: str, job_name: str) -> None:
         async def _on_status(status: RunStatus) -> None:
             await self._state_store.update_active_status(status)
-            await self._broadcast({
-                "type": "run_status",
-                "payload": {
-                    "run_id": run_id,
-                    "status": status,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "run_status",
+                    "payload": {
+                        "run_id": run_id,
+                        "status": status,
+                    },
+                }
+            )
 
         try:
             terminal_status = await wait_for_completion(
@@ -157,14 +162,16 @@ class PipelineManager:
                 grace_period_seconds=self._settings.cleanup_grace_period_seconds,
             )
 
-        await self._broadcast({
-            "type": "run_completed",
-            "payload": {
-                "run_id": run_id,
-                "status": terminal_status,
-                "run": run_info.model_dump() if run_info else None,
-            },
-        })
+        await self._broadcast(
+            {
+                "type": "run_completed",
+                "payload": {
+                    "run_id": run_id,
+                    "status": terminal_status,
+                    "run": run_info.model_dump(mode="json") if run_info else None,
+                },
+            }
+        )
 
         async with self._task_lock:
             self._tasks.pop(run_id, None)
@@ -192,12 +199,14 @@ class PipelineManager:
         finally:
             await self._log_streamer.stop(active.run.run_id)
             info = await self._state_store.cancel_active_run("Cancelled by user")
-            await self._broadcast({
-                "type": "run_cancelled",
-                "payload": {
-                    "run_id": active.run.run_id,
-                },
-            })
+            await self._broadcast(
+                {
+                    "type": "run_cancelled",
+                    "payload": {
+                        "run_id": active.run.run_id,
+                    },
+                }
+            )
 
         detail = None
         cancelled = deletion_error is None

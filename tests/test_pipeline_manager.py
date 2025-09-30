@@ -158,9 +158,7 @@ async def test_start_or_attach_run_cleans_up_on_monitor_failure(mocker) -> None:
     log_streamer.start.assert_awaited_once_with(run_id="1234567890ab", job_name="nextflow-run-1234567890ab")
     log_streamer.stop.assert_awaited_once_with("1234567890ab")
 
-    mock_delete.assert_awaited_once_with(
-        "nextflow-run-1234567890ab", settings=settings, grace_period_seconds=0
-    )
+    mock_delete.assert_awaited_once_with("nextflow-run-1234567890ab", settings=settings, grace_period_seconds=0)
 
     state_store.finish_active_run.assert_awaited_once_with(RunStatus.FAILED, message="monitor boom")
 

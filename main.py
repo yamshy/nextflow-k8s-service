@@ -1,4 +1,5 @@
 """Local dev helper for running the Nextflow K8s Service API with uvicorn."""
+
 from __future__ import annotations
 
 import uvicorn

@@ -1,4 +1,5 @@
 """Utilities for creating and managing Kubernetes Jobs for Nextflow runs."""
+
 from __future__ import annotations
 
 import asyncio
@@ -127,12 +128,19 @@ async def get_job_status(job_name: str, settings: Settings) -> RunStatus:
     status = job.status
     if status is None:
         return RunStatus.UNKNOWN
-    if status.active:
+
+    # Check conditions (authoritative for terminal states)
+    if status.conditions:
+        for condition in status.conditions:
+            if condition.type == "Complete" and condition.status == "True":
+                return RunStatus.SUCCEEDED
+            if condition.type == "Failed" and condition.status == "True":
+                return RunStatus.FAILED
+
+    # Check if job is still active
+    if status.active and status.active > 0:
         return RunStatus.RUNNING
-    if status.succeeded:
-        return RunStatus.SUCCEEDED
-    if status.failed:
-        return RunStatus.FAILED
+
     return RunStatus.UNKNOWN
 
 

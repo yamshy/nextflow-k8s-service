@@ -1,4 +1,5 @@
 """Service that streams Kubernetes pod logs to connected WebSocket clients."""
+
 from __future__ import annotations
 
 import asyncio
@@ -81,7 +82,7 @@ class LogStreamer:
                                 timestamp=effective_timestamp,
                                 message=message,
                             )
-                            await self._broadcaster.broadcast({"type": "log", "payload": chunk.model_dump()})
+                            await self._broadcaster.broadcast({"type": "log", "payload": chunk.model_dump(mode="json")})
 
                 try:
                     await asyncio.wait_for(stop_event.wait(), timeout=self._settings.log_fetch_interval_seconds)

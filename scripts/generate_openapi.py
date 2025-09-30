@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Generate OpenAPI spec from the FastAPI application."""
+
 import json
 import sys
 from pathlib import Path

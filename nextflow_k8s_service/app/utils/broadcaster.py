@@ -1,4 +1,5 @@
 """Simple broadcaster for fan-out of events to WebSocket clients."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,6 +9,7 @@ import logging
 from typing import Any, Set
 
 from fastapi import WebSocket
+from starlette.websockets import WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
 
@@ -41,17 +43,19 @@ class Broadcaster:
         async def _send(client: WebSocket) -> None:
             try:
                 await client.send_text(payload)
-            except Exception:  # pragma: no cover - ensure failure does not break others
-                logger.exception("Failed to send message to WebSocket %s", id(client))
+            except (RuntimeError, WebSocketDisconnect):
+                # Expected: connection closed or message sent after close
+                logger.debug("WebSocket %s disconnected, unregistering", id(client))
+                await self.unregister(client)
+            except Exception:  # pragma: no cover - unexpected errors
+                logger.exception("Unexpected error sending to WebSocket %s", id(client))
                 await self.unregister(client)
 
         for client in clients:
             async with self._lock:
                 pending = self._pending.get(client)
                 if pending and not pending.done():
-                    logger.warning(
-                        "Dropping slow WebSocket %s due to pending send", id(client)
-                    )
+                    logger.warning("Dropping slow WebSocket %s due to pending send", id(client))
                     drop_client = True
                 else:
                     drop_client = False
@@ -62,16 +66,12 @@ class Broadcaster:
 
             task = asyncio.create_task(_send(client))
             task.add_done_callback(
-                lambda completed, ws=client: asyncio.create_task(
-                    self._cleanup_pending(ws, completed)
-                )
+                lambda completed, ws=client: asyncio.create_task(self._cleanup_pending(ws, completed))
             )
             async with self._lock:
                 self._pending[client] = task
 
-    async def _cleanup_pending(
-        self, client: WebSocket, task: asyncio.Task[None]
-    ) -> None:
+    async def _cleanup_pending(self, client: WebSocket, task: asyncio.Task[None]) -> None:
         with contextlib.suppress(Exception):
             await task
         async with self._lock:
