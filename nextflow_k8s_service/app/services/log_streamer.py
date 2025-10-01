@@ -161,6 +161,14 @@ class LogStreamer:
                             # Parse and track task progress
                             task = parse_task_progress(message)
                             if task:
+                                logger.debug(
+                                    "Parsed task for run %s: %s %d/%d [%s]",
+                                    run_id,
+                                    task.name,
+                                    task.completed,
+                                    task.total,
+                                    task.status,
+                                )
                                 await self._update_task_state(run_id, task)
 
                             # Parse and track executor/resource info
@@ -376,7 +384,10 @@ class LogStreamer:
 
         tasks = self._task_states.get(run_id, {})
         if not tasks:
+            logger.debug("No tasks tracked yet for run %s", run_id)
             return
+        
+        logger.info("Broadcasting task_progress for run %s with %d tasks", run_id, len(tasks))
 
         # Get executor info from resource metrics
         metrics = self._resource_metrics.get(run_id, {})
