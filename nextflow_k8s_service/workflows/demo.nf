@@ -43,7 +43,8 @@ process ANALYZE {
 }
 
 process REPORT {
-    publishDir '/workspace/results', mode: 'copy'
+    // Use workflow.runName to create unique output directories per run
+    publishDir "/workspace/results/\${workflow.runName}", mode: 'copy'
 
     input:
     path stats

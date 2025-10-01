@@ -111,9 +111,15 @@ async def get_demo_results(
     if run.duration_seconds is None:
         raise HTTPException(status_code=400, detail=f"Run {run_id} duration not available")
 
-    # Parse results from report.json
-    report_path = "/workspace/results/report.json"
-    worker_pods = 10  # Default estimate (5 GENERATE + 5 ANALYZE for default 5 batches)
+    # Parse results from run-specific report.json
+    # Note: The workflow publishDir should be updated to include run_id
+    # For now, use the default path with a note
+    report_path = f"/workspace/results/{run_id}/report.json"
+
+    # Estimate worker pods based on typical batch count
+    # TODO: Store batch_count in run metadata for accurate tracking
+    # For now, estimate: default is 5 batches = 10 workers (5 GENERATE + 5 ANALYZE)
+    worker_pods = 10  # Conservative estimate
 
     metrics = parse_report_json(
         report_path=report_path,
@@ -171,9 +177,11 @@ async def showcase_summary(
         "performance": {
             "total_runs": len(history),
             "successful_runs": len(successful_runs),
-            "average_runtime_seconds": round(sum(execution_times) / len(execution_times), 2)
-            if execution_times
-            else 0.0,
+            "average_runtime_seconds": (
+                round(sum(execution_times) / len(execution_times), 2)
+                if execution_times and len(execution_times) > 0
+                else 0.0
+            ),
             "min_runtime_seconds": round(min(execution_times), 2) if execution_times else 0.0,
             "max_runtime_seconds": round(max(execution_times), 2) if execution_times else 0.0,
             "typical_runtime": "45-60 seconds",

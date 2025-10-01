@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -108,14 +108,21 @@ def estimate_completion_time(
     - REPORT process (final step, ~5-10s)
 
     Args:
-        started_at: When the run started
+        started_at: When the run started (must be timezone-aware, preferably UTC)
         batches_generated: Number of GENERATE processes completed
         batches_analyzed: Number of ANALYZE processes completed
         total_batches: Total number of batches being processed
 
     Returns:
         Estimated completion datetime, or None if cannot estimate
+
+    Raises:
+        ValueError: If started_at is not timezone-aware
     """
+    # Validate timezone awareness
+    if started_at.tzinfo is None:
+        raise ValueError("started_at must be timezone-aware")
+
     if total_batches == 0:
         return None
 
@@ -127,16 +134,13 @@ def estimate_completion_time(
 
     if total_progress == 0:
         # Just started, estimate 60 seconds
-        from datetime import timedelta
-
         return started_at + timedelta(seconds=60)
 
     # Estimate total runtime based on current progress
-    elapsed = (datetime.now() - started_at).total_seconds()
+    # Use timezone-aware datetime for elapsed calculation
+    elapsed = (datetime.now(timezone.utc) - started_at).total_seconds()
     if elapsed > 0 and total_progress > 0:
         estimated_total = elapsed / total_progress
-        from datetime import timedelta
-
         return started_at + timedelta(seconds=estimated_total)
 
     return None
