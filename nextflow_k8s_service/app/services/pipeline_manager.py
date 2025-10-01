@@ -7,7 +7,7 @@ import logging
 import uuid
 import contextlib
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from ..config import Settings
 from ..kubernetes import jobs
@@ -46,37 +46,29 @@ class PipelineManager:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._task_lock = asyncio.Lock()
 
-    async def start_or_attach_run(self, request: RunRequest) -> RunResponse:
+    async def _execute_pipeline_start(
+        self,
+        *,
+        run_id: str,
+        job_name: str,
+        job_creator: Callable[[], Awaitable[Any]],
+        log_suffix: str = "",
+    ) -> RunResponse:
+        """Common pipeline start logic shared between demo and legacy runs.
+
+        Args:
+            run_id: Unique run identifier
+            job_name: Kubernetes job name
+            job_creator: Async callable that creates the Kubernetes job
+            log_suffix: Additional info for logging (e.g., batch_count)
+
+        Returns:
+            RunResponse with run details
+
+        Raises:
+            Exception: If job creation or monitoring setup fails
+        """
         websocket_url = self._websocket_url()
-        active = await self._state_store.get_active_run()
-        if active.active and active.run:
-            return RunResponse(
-                run_id=active.run.run_id,
-                status=active.run.status,
-                attached=True,
-                job_name=active.run.job_name,
-                websocket_url=websocket_url,
-            )
-
-        run_id = uuid.uuid4().hex[:12]
-        job_name = f"nextflow-run-{run_id}"
-
-        acquired = await self._state_store.acquire_active_run(
-            run_id=run_id,
-            job_name=job_name,
-            triggered_by=request.triggered_by,
-        )
-        if not acquired:
-            active = await self._state_store.get_active_run()
-            if active.run:
-                return RunResponse(
-                    run_id=active.run.run_id,
-                    status=active.run.status,
-                    attached=True,
-                    job_name=active.run.job_name,
-                    websocket_url=websocket_url,
-                )
-            raise RuntimeError("Unable to acquire pipeline lock")
 
         await self._state_store.update_progress(percent=0.0)
         await self._broadcast_message(
@@ -89,7 +81,7 @@ class PipelineManager:
         )
 
         try:
-            job = await jobs.create_job(run_id=run_id, params=request, settings=self._settings)
+            job = await job_creator()
         except Exception as exc:
             run_info = await self._state_store.finish_active_run(RunStatus.FAILED, message=str(exc))
             await self._broadcast_message(
@@ -122,6 +114,7 @@ class PipelineManager:
                 "job_name": job_name,
             },
         )
+
         log_started = False
         try:
             await self._log_streamer.start(run_id=run_id, job_name=job_name)
@@ -154,7 +147,8 @@ class PipelineManager:
                     await monitor_task
             await self._state_store.set_monitor_task(None)
             raise
-        logger.info("Started Nextflow run %s with job %s", run_id, job.metadata.name)
+
+        logger.info("Started Nextflow run %s with job %s%s", run_id, job.metadata.name, log_suffix)
 
         return RunResponse(
             run_id=run_id,
@@ -162,6 +156,46 @@ class PipelineManager:
             attached=False,
             job_name=job.metadata.name,
             websocket_url=websocket_url,
+        )
+
+    async def start_or_attach_run(self, request: RunRequest) -> RunResponse:
+        """Start a legacy pipeline run or attach to existing active run."""
+        websocket_url = self._websocket_url()
+        active = await self._state_store.get_active_run()
+        if active.active and active.run:
+            return RunResponse(
+                run_id=active.run.run_id,
+                status=active.run.status,
+                attached=True,
+                job_name=active.run.job_name,
+                websocket_url=websocket_url,
+            )
+
+        run_id = uuid.uuid4().hex[:12]
+        job_name = f"nextflow-run-{run_id}"
+
+        acquired = await self._state_store.acquire_active_run(
+            run_id=run_id,
+            job_name=job_name,
+            triggered_by=request.triggered_by,
+        )
+        if not acquired:
+            active = await self._state_store.get_active_run()
+            if active.run:
+                return RunResponse(
+                    run_id=active.run.run_id,
+                    status=active.run.status,
+                    attached=True,
+                    job_name=active.run.job_name,
+                    websocket_url=websocket_url,
+                )
+            raise RuntimeError("Unable to acquire pipeline lock")
+
+        # Delegate to common execution logic
+        return await self._execute_pipeline_start(
+            run_id=run_id,
+            job_name=job_name,
+            job_creator=lambda: jobs.create_job(run_id=run_id, params=request, settings=self._settings),
         )
 
     async def start_demo_run(self, request: DemoRunRequest) -> RunResponse:
@@ -203,92 +237,14 @@ class PipelineManager:
                 )
             raise RuntimeError("Unable to acquire pipeline lock")
 
-        await self._state_store.update_progress(percent=0.0)
-        await self._broadcast_message(
+        # Delegate to common execution logic with demo-specific job creator
+        return await self._execute_pipeline_start(
             run_id=run_id,
-            message_type=StreamMessageType.STATUS,
-            data={
-                "status": RunStatus.STARTING.value,
-                "job_name": job_name,
-                "batch_count": request.batch_count,
-            },
-        )
-
-        try:
-            job = await jobs.create_demo_job(run_id=run_id, batch_count=request.batch_count, settings=self._settings)
-        except Exception as exc:
-            run_info = await self._state_store.finish_active_run(RunStatus.FAILED, message=str(exc))
-            await self._broadcast_message(
-                run_id=run_id,
-                message_type=StreamMessageType.ERROR,
-                data={
-                    "stage": "demo_job_creation",
-                    "message": str(exc),
-                },
-            )
-            await self._broadcast_message(
-                run_id=run_id,
-                message_type=StreamMessageType.COMPLETE,
-                data={
-                    "status": RunStatus.FAILED.value,
-                    "run": run_info.model_dump() if run_info else None,
-                },
-            )
-            raise
-
-        job_metadata = getattr(job, "metadata", None)
-        job_name = getattr(job_metadata, "name", job_name)
-
-        await self._state_store.update_active_status(RunStatus.RUNNING)
-        await self._broadcast_message(
-            run_id=run_id,
-            message_type=StreamMessageType.STATUS,
-            data={
-                "status": RunStatus.RUNNING.value,
-                "job_name": job_name,
-                "batch_count": request.batch_count,
-            },
-        )
-        log_started = False
-        try:
-            await self._log_streamer.start(run_id=run_id, job_name=job_name)
-            log_started = True
-            await self._schedule_monitor(run_id=run_id, job_name=job_name)
-        except Exception as exc:
-            if log_started:
-                try:
-                    await self._log_streamer.stop(run_id)
-                except Exception:  # pragma: no cover - defensive cleanup
-                    logger.exception("Failed to stop log streamer for run %s", run_id)
-            try:
-                await jobs.delete_job(job_name, settings=self._settings, grace_period_seconds=0)
-            except Exception:  # pragma: no cover - defensive cleanup
-                logger.exception("Failed to delete job %s after start failure", job_name)
-            run_info = await self._state_store.finish_active_run(RunStatus.FAILED, message=str(exc))
-            await self._broadcast_message(
-                run_id=run_id,
-                message_type=StreamMessageType.COMPLETE,
-                data={
-                    "status": RunStatus.FAILED.value,
-                    "run": run_info.model_dump(mode="json") if run_info else None,
-                },
-            )
-            async with self._task_lock:
-                monitor_task = self._tasks.pop(run_id, None)
-            if monitor_task:
-                monitor_task.cancel()
-                with contextlib.suppress(Exception):
-                    await monitor_task
-            await self._state_store.set_monitor_task(None)
-            raise
-        logger.info("Started demo run %s with job %s (batch_count=%d)", run_id, job.metadata.name, request.batch_count)
-
-        return RunResponse(
-            run_id=run_id,
-            status=RunStatus.RUNNING,
-            attached=False,
-            job_name=job.metadata.name,
-            websocket_url=websocket_url,
+            job_name=job_name,
+            job_creator=lambda: jobs.create_demo_job(
+                run_id=run_id, batch_count=request.batch_count, settings=self._settings
+            ),
+            log_suffix=f" (batch_count={request.batch_count})",
         )
 
     async def _schedule_monitor(self, *, run_id: str, job_name: str) -> None:
