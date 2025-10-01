@@ -209,11 +209,27 @@ async def create_job(run_id: str, params: PipelineParameters, settings: Settings
     # For k8s.memoryLimits, convert to k8s format (e.g., "1Gi")
     memory_limit_k8s = settings.worker_memory_limit.replace(" GB", "Gi").replace(" MB", "Mi")
 
+    # For nf-core pipelines: override process-specific resource requirements
+    # Use withName: '*' to apply limits to ALL processes, preventing quota violations
+    # This overrides nf-core's default resource requests which can be 12Gi+ per process
     nextflow_config = f"""
 process {{
     executor = 'k8s'
     cpus = {cpu_numeric}
     memory = '{settings.worker_memory_limit}'
+    
+    // Override resource requests for all processes (including nf-core)
+    withName: '*' {{
+        cpus = {cpu_numeric}
+        memory = '{settings.worker_memory_limit}'
+    }}
+}}
+
+// Set maximum resource limits to prevent any process from exceeding quota
+params {{
+    max_cpus = {cpu_numeric}
+    max_memory = '{settings.worker_memory_limit}'
+    max_time = '4.h'
 }}
 
 k8s {{
