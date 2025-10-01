@@ -1,6 +1,6 @@
 {
+  "pipeline": "nextflow-io/hello",
   "parameters": {
-    "pipeline": "nextflow-io/hello",
     "greeting": "Hello from v1.8.0!"
   }
 }

@@ -334,38 +334,6 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
-      "PipelineParameters": {
-        "properties": {
-          "pipeline": {
-            "type": "string",
-            "title": "Pipeline",
-            "description": "Name of the Nextflow pipeline to run"
-          },
-          "workdir": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Workdir",
-            "description": "Working directory for pipeline execution"
-          },
-          "parameters": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Parameters",
-            "description": "Arbitrary Nextflow parameters"
-          }
-        },
-        "type": "object",
-        "required": [
-          "pipeline"
-        ],
-        "title": "PipelineParameters"
-      },
       "RunHistoryEntry": {
         "properties": {
           "run_id": {
@@ -500,8 +468,28 @@
       },
       "RunRequest": {
         "properties": {
+          "pipeline": {
+            "type": "string",
+            "title": "Pipeline",
+            "description": "Name of the Nextflow pipeline to run"
+          },
+          "workdir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workdir",
+            "description": "Working directory for pipeline execution"
+          },
           "parameters": {
-            "$ref": "#/components/schemas/PipelineParameters"
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Parameters",
+            "description": "Arbitrary Nextflow parameters"
           },
           "triggered_by": {
             "anyOf": [
@@ -518,7 +506,7 @@
         },
         "type": "object",
         "required": [
-          "parameters"
+          "pipeline"
         ],
         "title": "RunRequest"
       },

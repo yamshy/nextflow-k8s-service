@@ -25,8 +25,7 @@ class PipelineParameters(BaseModel):
     parameters: Dict[str, Any] = Field(default_factory=dict, description="Arbitrary Nextflow parameters")
 
 
-class RunRequest(BaseModel):
-    parameters: PipelineParameters
+class RunRequest(PipelineParameters):
     triggered_by: Optional[str] = Field(None, description="Identifier for the caller that triggered the run")
 
 
