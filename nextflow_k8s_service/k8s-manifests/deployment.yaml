@@ -27,6 +27,8 @@ spec:
           env:
             - name: ENVIRONMENT
               value: "production"
+            - name: APP_IMAGE
+              value: "ghcr.io/example/nextflow-k8s-service:latest"  # Must match the image above
             - name: NEXTFLOW_NAMESPACE
               valueFrom:
                 fieldRef:

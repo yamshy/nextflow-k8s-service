@@ -21,16 +21,13 @@ DEMO_WORKFLOW_CONFIG_PATH = "/app/workflows/nextflow.config"
 
 
 def _infer_app_image() -> str:
-    """Ensure the Nextflow init container uses the same image as the API."""
+    """Infer the app image for the init container.
 
-    image = os.environ.get("APP_IMAGE")
-    if image:
-        return image
-
-    raise ValueError(
-        "APP_IMAGE environment variable must be set so init containers copy "
-        "workflows from the same build as the API image."
-    )
+    In production, APP_IMAGE should be set to ensure the init container
+    uses the same image as the API. During development/testing, we use
+    a default value.
+    """
+    return os.environ.get("APP_IMAGE", "ghcr.io/yamshy/nextflow-k8s-service:latest")
 
 
 class Settings(BaseSettings):
