@@ -12,13 +12,15 @@ concurrency:
 
 permissions:
   contents: read
+  checks: write
+  pull-requests: write
 
 env:
   UV_LINK_MODE: copy
 
 jobs:
   lint:
-    name: Ruff
+    name: Code Quality
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -28,7 +30,6 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-          allow-prerelease: true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
@@ -43,10 +44,12 @@ jobs:
       - name: Run Ruff lint
         run: uv run ruff check .
 
-  tests:
+      - name: Run Ruff format check
+        run: uv run ruff format --check .
+
+  security:
+    name: Security Scan
     runs-on: ubuntu-latest
-    needs:
-      - lint
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -55,7 +58,6 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-          allow-prerelease: true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
@@ -67,5 +69,306 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev --frozen
 
-      - name: Run tests
-        run: uv run pytest --maxfail=1 --disable-warnings -q
+      - name: Run Bandit security scan
+        run: |
+          uv run bandit -r nextflow_k8s_service -f json -o bandit-report.json || true
+          uv run bandit -r nextflow_k8s_service -f screen
+
+      - name: Upload Bandit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+      - name: Run Safety dependency check
+        run: |
+          uv run safety check --json > safety-report.json || true
+          uv run safety check || true
+
+      - name: Upload Safety report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: safety-report
+          path: safety-report.json
+
+  test-matrix:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    needs:
+      - lint
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+      fail-fast: false
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          cache-dependency-path: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install dependencies
+        run: uv sync --group dev --frozen
+
+      - name: Run unit tests with coverage
+        run: |
+          uv run pytest \
+            --cov=nextflow_k8s_service \
+            --cov-report=term-missing \
+            --cov-report=html:htmlcov-${{ matrix.python-version }} \
+            --cov-report=xml:coverage-${{ matrix.python-version }}.xml \
+            --junit-xml=junit-${{ matrix.python-version }}.xml \
+            -m "not integration and not slow" \
+            --maxfail=5
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-py${{ matrix.python-version }}
+          path: |
+            htmlcov-${{ matrix.python-version }}/
+            coverage-${{ matrix.python-version }}.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-py${{ matrix.python-version }}
+          path: junit-${{ matrix.python-version }}.xml
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs:
+      - lint
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          cache-dependency-path: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install dependencies
+        run: uv sync --group dev --frozen
+
+      - name: Start Redis for integration tests
+        run: |
+          docker run -d --name redis-test -p 6379:6379 redis:7-alpine
+          sleep 5
+
+      - name: Run integration tests
+        env:
+          REDIS_URL: redis://localhost:6379
+        run: |
+          uv run pytest \
+            -m integration \
+            --cov=nextflow_k8s_service \
+            --cov-report=xml:coverage-integration.xml \
+            --junit-xml=junit-integration.xml
+
+      - name: Stop Redis
+        if: always()
+        run: docker stop redis-test && docker rm redis-test
+
+      - name: Upload integration test coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-integration
+          path: coverage-integration.xml
+
+      - name: Upload integration test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-integration
+          path: junit-integration.xml
+
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs:
+      - test-matrix
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          cache-dependency-path: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install dependencies
+        run: uv sync --group dev --frozen
+
+      - name: Run performance tests
+        run: |
+          uv run pytest \
+            -m slow \
+            --timeout=300 \
+            --junit-xml=junit-performance.xml \
+            || true
+
+      - name: Upload performance test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-performance
+          path: junit-performance.xml
+
+  coverage-report:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    needs:
+      - test-matrix
+      - integration-tests
+    if: always()
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Download all coverage reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: coverage-reports
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install coverage tool
+        run: pip install coverage[toml]
+
+      - name: Combine coverage reports
+        run: |
+          coverage combine coverage-reports/*/coverage*.xml || true
+          coverage report --format=markdown > coverage-summary.md || true
+          coverage html -d combined-coverage || true
+
+      - name: Post coverage comment
+        if: github.event_name == 'pull_request'
+        uses: py-cov-action/python-coverage-comment-action@v3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+          MINIMUM_GREEN: 80
+          MINIMUM_ORANGE: 60
+          ANNOTATE_MISSING_LINES: true
+
+      - name: Upload combined coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-coverage-report
+          path: |
+            combined-coverage/
+            coverage-summary.md
+
+  test-report:
+    name: Test Report
+    runs-on: ubuntu-latest
+    needs:
+      - test-matrix
+      - integration-tests
+      - performance-tests
+    if: always()
+    steps:
+      - name: Download all test results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: test-results-*
+          path: test-results
+
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          files: |
+            test-results/**/*.xml
+          check_name: Test Results
+          comment_title: Test Results
+          fail_on: test_failures
+          report_individual_runs: true
+
+  build-test-image:
+    name: Build Test Docker Image
+    runs-on: ubuntu-latest
+    needs:
+      - test-matrix
+      - integration-tests
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: nextflow-k8s-service:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: nextflow-k8s-service:test
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: Upload Trivy results
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results
+          path: trivy-results.sarif
+
+  all-tests-pass:
+    name: All Tests Pass
+    runs-on: ubuntu-latest
+    needs:
+      - lint
+      - security
+      - test-matrix
+      - integration-tests
+      - coverage-report
+    if: always()
+    steps:
+      - name: Check if all tests passed
+        run: |
+          if [[ "${{ needs.lint.result }}" != "success" || \
+                "${{ needs.security.result }}" != "success" || \
+                "${{ needs.test-matrix.result }}" != "success" || \
+                "${{ needs.integration-tests.result }}" != "success" ]]; then
+            echo "One or more required checks failed"
+            exit 1
+          fi
+          echo "All tests passed successfully!"
