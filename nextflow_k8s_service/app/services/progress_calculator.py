@@ -346,11 +346,12 @@ class ProgressCalculator:
 
         # Check REPORT dependencies
         report = phase_map.get("REPORT")
-        if report and report.status != PhaseStatus.PENDING:
+        if report and report.status == PhaseStatus.RUNNING:
             generate = phase_map.get("GENERATE")
             analyze = phase_map.get("ANALYZE")
 
-            # REPORT should only start after GENERATE and ANALYZE complete
+            # REPORT should only be actively running after GENERATE and ANALYZE complete
+            # Only check when REPORT is actually RUNNING, not just PENDING (submitted but waiting)
             if generate and generate.status != PhaseStatus.COMPLETED:
                 warnings.append("REPORT started before GENERATE completed")
                 workflow_valid = False
