@@ -24,10 +24,12 @@ data:
 
         script:
         """
+        #!/bin/bash
+        set -euo pipefail
         echo "Generating batch ${batch_id}..."
         sleep 5
         for i in {1..100}; do
-            echo "\${batch_id},\$((RANDOM % 1000)),\$((RANDOM % 100))" >> batch_${batch_id}.csv
+            echo "${batch_id},\$((RANDOM % 1000)),\$((RANDOM % 100))" >> batch_${batch_id}.csv
         done
         """
     }
@@ -41,17 +43,19 @@ data:
 
         script:
         """
+        #!/bin/bash
+        set -euo pipefail
         sleep 3
         lines=\$(wc -l < ${datafile})
-        sum=\$(awk -F',' '{s+=\$2} END {print s}' ${datafile})
-        avg=\$(awk -F',' '{s+=\$2; n++} END {print s/n}' ${datafile})
+        sum=\$(awk -F',' '{s+=\$2} END {print (s ? s : 0)}' ${datafile})
+        avg=\$(awk -F',' '{s+=\$2; n++} END {if (n>0) print s/n; else print 0}' ${datafile})
         echo '{"file":"${datafile}","lines":'\$lines',"sum":'\$sum',"average":'\$avg'}' > stats_${datafile}.json
         """
     }
 
     process REPORT {
         // Use workflow.runName to create unique output directories per run
-        publishDir "/workspace/results/\${workflow.runName}", mode: 'copy'
+        publishDir "/workspace/results/${workflow.runName}", mode: 'copy'
 
         input:
         path stats
@@ -61,7 +65,9 @@ data:
 
         script:
         """
-        total_batches=\$(ls ${stats} | wc -l)
+        #!/bin/bash
+        set -euo pipefail
+        total_batches=\$(echo ${stats} | wc -w)
         echo '{"batches":[' > report.json
         paste -sd ',' ${stats} >> report.json
         echo '],"timestamp":"'\$(date -Iseconds)'","total_batches":'\$total_batches'}' >> report.json
@@ -69,16 +75,20 @@ data:
     }
 
     workflow {
-        // Create channel from 1 to params.batches
+        // Scatter phase: Create parallel channel of batch IDs (1..N)
+        // Each batch will be processed independently by GENERATE
         batches = Channel.of(1..params.batches)
 
-        // Scatter: Generate data in parallel
+        // Scatter-gather step 1: Generate data in parallel
+        // Each GENERATE task runs concurrently (limited by K8s resources)
         data = GENERATE(batches)
 
-        // Process: Analyze each batch in parallel
+        // Scatter-gather step 2: Analyze each batch independently
+        // ANALYZE processes run in parallel, one per batch
         stats = ANALYZE(data)
 
-        // Gather: Collect all results into single report
+        // Gather phase: Collect all stats files and aggregate into single report
+        // .collect() waits for ALL stats files before proceeding to REPORT
         REPORT(stats.collect())
     }
 
