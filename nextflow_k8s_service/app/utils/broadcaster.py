@@ -57,11 +57,14 @@ class Broadcaster:
             await self._state_store.set_connected_clients(pending_count)
 
     async def broadcast(self, message: dict[str, Any]) -> None:
+        msg_type = message.get("type")
+        logger.info("🔔 Broadcaster.broadcast() called for type=%s", msg_type)
+        
         try:
             payload = json.dumps(message, default=str)
-            logger.debug("Serialized broadcast message: type=%s, size=%d bytes", message.get("type"), len(payload))
+            logger.info("✅ JSON serialization OK: type=%s, size=%d bytes", msg_type, len(payload))
         except Exception as exc:
-            logger.exception("Failed to serialize broadcast message type=%s: %s", message.get("type"), exc)
+            logger.exception("❌ Failed to serialize broadcast message type=%s: %s", msg_type, exc)
             return
             
         timestamp_raw = message.get("timestamp")
@@ -72,14 +75,16 @@ class Broadcaster:
             try:
                 broadcast_time = datetime.fromisoformat(timestamp_raw.replace("Z", "+00:00")).astimezone(timezone.utc)
             except ValueError:
-                logger.debug("Unable to parse timestamp '%s' in broadcast", timestamp_raw)
+                pass
         async with self._lock:
             clients = list(self._clients)
         if self._state_store:
             await self._state_store.update_last_broadcast(broadcast_time)
         if not clients:
-            logger.debug("No clients connected, skipping broadcast of %s", message.get("type"))
+            logger.info("⚠️  No clients connected, skipping broadcast of %s", msg_type)
             return
+        
+        logger.info("📨 Sending %s to %d client(s)", msg_type, len(clients))
 
         async def _send(client: WebSocket) -> None:
             try:

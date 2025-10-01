@@ -316,11 +316,11 @@ class LogStreamer:
             "run_id": run_id,
         }
         try:
-            logger.debug("Broadcasting %s message for run %s", message_type.value, run_id)
+            logger.info("📤 Calling broadcaster.broadcast(%s) for run %s", message_type.value, run_id)
             await self._broadcaster.broadcast(message)
-            logger.debug("Broadcast of %s completed", message_type.value)
+            logger.info("📬 broadcaster.broadcast(%s) returned for run %s", message_type.value, run_id)
         except Exception as exc:
-            logger.exception("Failed to broadcast %s message for run %s: %s", message_type.value, run_id, exc)
+            logger.exception("❌ Failed to broadcast %s message for run %s: %s", message_type.value, run_id, exc)
 
     async def _update_task_state(self, run_id: str, task: NextflowTask) -> None:
         """Update the internal task state tracker.
@@ -403,7 +403,7 @@ class LogStreamer:
         try:
             # Serialize tasks to JSON-compatible dicts
             serialized_tasks = [t.model_dump(mode="json") for t in task_list]
-            logger.debug("Serialized %d tasks for broadcast", len(serialized_tasks))
+            logger.info("✅ Serialized %d tasks, calling _broadcast for run %s", len(serialized_tasks), run_id)
             
             await self._broadcast(
                 run_id,
@@ -414,9 +414,9 @@ class LogStreamer:
                 },
             )
             self._last_task_progress_broadcast[run_id] = now
-            logger.debug("task_progress broadcast completed successfully")
+            logger.info("✅ _broadcast() call completed for task_progress run %s", run_id)
         except Exception as exc:
-            logger.exception("Failed to broadcast task_progress for run %s: %s", run_id, exc)
+            logger.exception("❌ Failed to broadcast task_progress for run %s: %s", run_id, exc)
 
     async def _broadcast_resource_usage(self, run_id: str, current_pod_count: int) -> None:
         """Broadcast resource usage metrics periodically."""
