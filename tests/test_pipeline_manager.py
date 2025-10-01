@@ -8,7 +8,6 @@ import pytest
 from app.config import Settings
 from app.models import (
     ActiveRunStatus,
-    PipelineParameters,
     RunHistoryEntry,
     RunInfo,
     RunRequest,
@@ -45,10 +44,7 @@ async def test_start_or_attach_run_returns_existing(mocker) -> None:
         broadcaster=broadcaster,
     )
 
-    run_request = RunRequest(
-        parameters=PipelineParameters(pipeline="hello", parameters={}, workdir=None),
-        triggered_by="tester",
-    )
+    run_request = RunRequest(pipeline="hello", parameters={}, triggered_by="tester")
 
     result = await manager.start_or_attach_run(run_request)
 
@@ -93,7 +89,9 @@ async def test_start_or_attach_run_creates_new_job(mocker) -> None:
     mocker.patch("app.services.pipeline_manager.jobs.create_job", mock_create)
 
     run_request = RunRequest(
-        parameters=PipelineParameters(pipeline="nf", parameters={"profile": "test"}, workdir="/data"),
+        pipeline="nf",
+        parameters={"profile": "test"},
+        workdir="/data",
         triggered_by="ci",
     )
 
@@ -114,6 +112,7 @@ async def test_start_or_attach_run_creates_new_job(mocker) -> None:
     first_message = broadcaster.broadcast.await_args_list[0].args[0]
     assert first_message["type"] == StreamMessageType.STATUS.value
     assert first_message["data"]["status"] == RunStatus.STARTING.value
+    assert mock_create.await_args.kwargs["params"] == run_request
 
 
 @pytest.mark.asyncio
@@ -150,10 +149,7 @@ async def test_start_or_attach_run_broadcasts_complete_on_job_creation_failure(m
     creation_error = RuntimeError("boom")
     mocker.patch("app.services.pipeline_manager.jobs.create_job", side_effect=creation_error)
 
-    run_request = RunRequest(
-        parameters=PipelineParameters(pipeline="nf", parameters={}, workdir=None),
-        triggered_by="tester",
-    )
+    run_request = RunRequest(pipeline="nf", parameters={}, triggered_by="tester")
 
     with pytest.raises(RuntimeError) as excinfo:
         await manager.start_or_attach_run(run_request)
@@ -217,10 +213,7 @@ async def test_start_or_attach_run_cleans_up_on_monitor_failure(mocker) -> None:
     mock_schedule = mocker.AsyncMock(side_effect=schedule_error)
     mocker.patch.object(manager, "_schedule_monitor", mock_schedule)
 
-    run_request = RunRequest(
-        parameters=PipelineParameters(pipeline="nf", parameters={}, workdir=None),
-        triggered_by="tester",
-    )
+    run_request = RunRequest(pipeline="nf", parameters={}, triggered_by="tester")
 
     with pytest.raises(RuntimeError) as excinfo:
         await manager.start_or_attach_run(run_request)

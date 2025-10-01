@@ -67,8 +67,9 @@ def _build_job_manifest(
     boolean_core_options = {"resume", "with-docker", "with-singularity", "with-conda"}
 
     # Set default outdir only for nf-core pipelines (required by most of them)
-    if _is_nf_core_pipeline(params.pipeline) and "outdir" not in params.parameters:
-        params.parameters["outdir"] = "/workspace/results"
+    pipeline_parameters = dict(params.parameters)
+    if _is_nf_core_pipeline(params.pipeline) and "outdir" not in pipeline_parameters:
+        pipeline_parameters["outdir"] = "/workspace/results"
 
     args = [
         "run",
@@ -76,7 +77,7 @@ def _build_job_manifest(
         "-c",
         "/etc/nextflow/nextflow.config",
     ]
-    for key, value in params.parameters.items():
+    for key, value in pipeline_parameters.items():
         if key == "revision":
             # Special handling for revision shorthand
             args.extend(["-r", str(value)])

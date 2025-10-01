@@ -88,7 +88,7 @@ class PipelineManager:
         )
 
         try:
-            job = await jobs.create_job(run_id=run_id, params=request.parameters, settings=self._settings)
+            job = await jobs.create_job(run_id=run_id, params=request, settings=self._settings)
         except Exception as exc:
             run_info = await self._state_store.finish_active_run(RunStatus.FAILED, message=str(exc))
             await self._broadcast_message(
