@@ -176,7 +176,7 @@ class PipelineManager:
                 websocket_url=websocket_url,
             )
 
-        run_id = uuid.uuid4().hex[:12]
+        run_id = f"r{uuid.uuid4().hex[:11]}"
         job_name = f"nextflow-run-{run_id}"
 
         acquired = await self._state_store.acquire_active_run(

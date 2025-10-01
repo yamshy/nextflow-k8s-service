@@ -84,7 +84,7 @@ async def test_start_demo_run_creates_new_job(mocker) -> None:
     fake_uuid = mocker.Mock(hex="1234567890abcdef")
     mocker.patch("app.services.pipeline_manager.uuid.uuid4", return_value=fake_uuid)
 
-    fake_job = SimpleNamespace(metadata=SimpleNamespace(name="nextflow-run-1234567890ab"))
+    fake_job = SimpleNamespace(metadata=SimpleNamespace(name="nextflow-run-r1234567890a"))
     mock_create = mocker.AsyncMock(return_value=fake_job)
     mocker.patch("app.services.pipeline_manager.jobs.create_demo_job", mock_create)
 
@@ -97,15 +97,15 @@ async def test_start_demo_run_creates_new_job(mocker) -> None:
 
     assert result.attached is False
     assert result.status == RunStatus.RUNNING
-    assert result.job_name == "nextflow-run-1234567890ab"
-    assert result.run_id == "1234567890ab"
+    assert result.job_name == "nextflow-run-r1234567890a"
+    assert result.run_id == "r1234567890a"
     assert result.websocket_url == "/api/v1/pipeline/stream"
 
     mock_create.assert_awaited_once()
     state_store.acquire_active_run.assert_awaited_once()
     state_store.update_active_status.assert_awaited_once_with(RunStatus.RUNNING)
-    log_streamer.start.assert_awaited_once_with(run_id="1234567890ab", job_name="nextflow-run-1234567890ab")
-    mock_schedule.assert_awaited_once_with(run_id="1234567890ab", job_name="nextflow-run-1234567890ab")
+    log_streamer.start.assert_awaited_once_with(run_id="r1234567890a", job_name="nextflow-run-r1234567890a")
+    mock_schedule.assert_awaited_once_with(run_id="r1234567890a", job_name="nextflow-run-r1234567890a")
     assert broadcaster.broadcast.await_count >= 2
     first_message = broadcaster.broadcast.await_args_list[0].args[0]
     assert first_message["type"] == StreamMessageType.STATUS.value
@@ -122,11 +122,11 @@ async def test_start_demo_run_broadcasts_complete_on_job_creation_failure(mocker
     state_store.update_progress.return_value = (0.0, None, None)
 
     run_info = RunInfo(
-        run_id="feedbead1234",
+        run_id="rfeedbead123",
         status=RunStatus.FAILED,
         started_at=datetime.now(timezone.utc),
         finished_at=None,
-        job_name="nextflow-run-feedbead1234",
+        job_name="nextflow-run-rfeedbead123",
         message="boom",
     )
     state_store.finish_active_run.return_value = run_info
@@ -166,8 +166,8 @@ async def test_start_demo_run_broadcasts_complete_on_job_creation_failure(mocker
     complete_payload = broadcast_calls[2].args[0]
     assert complete_payload["type"] == StreamMessageType.COMPLETE.value
     assert complete_payload["data"]["status"] == RunStatus.FAILED.value
-    assert complete_payload["data"]["run"]["run_id"] == "feedbead1234"
-    assert complete_payload["run_id"] == "feedbead1234"
+    assert complete_payload["data"]["run"]["run_id"] == "rfeedbead123"
+    assert complete_payload["run_id"] == "rfeedbead123"
 
 
 @pytest.mark.asyncio
@@ -200,7 +200,7 @@ async def test_start_demo_run_cleans_up_on_monitor_failure(mocker) -> None:
     fake_uuid = mocker.Mock(hex="1234567890abcdef")
     mocker.patch("app.services.pipeline_manager.uuid.uuid4", return_value=fake_uuid)
 
-    fake_job = SimpleNamespace(metadata=SimpleNamespace(name="nextflow-run-1234567890ab"))
+    fake_job = SimpleNamespace(metadata=SimpleNamespace(name="nextflow-run-r1234567890a"))
     mock_create = mocker.AsyncMock(return_value=fake_job)
     mocker.patch("app.services.pipeline_manager.jobs.create_demo_job", mock_create)
 
@@ -218,10 +218,10 @@ async def test_start_demo_run_cleans_up_on_monitor_failure(mocker) -> None:
 
     assert str(excinfo.value) == "monitor boom"
 
-    log_streamer.start.assert_awaited_once_with(run_id="1234567890ab", job_name="nextflow-run-1234567890ab")
-    log_streamer.stop.assert_awaited_once_with("1234567890ab")
+    log_streamer.start.assert_awaited_once_with(run_id="r1234567890a", job_name="nextflow-run-r1234567890a")
+    log_streamer.stop.assert_awaited_once_with("r1234567890a")
 
-    mock_delete.assert_awaited_once_with("nextflow-run-1234567890ab", settings=settings, grace_period_seconds=0)
+    mock_delete.assert_awaited_once_with("nextflow-run-r1234567890a", settings=settings, grace_period_seconds=0)
 
     state_store.finish_active_run.assert_awaited_once_with(RunStatus.FAILED, message="monitor boom")
     state_store.set_monitor_task.assert_awaited()
@@ -230,7 +230,7 @@ async def test_start_demo_run_cleans_up_on_monitor_failure(mocker) -> None:
     broadcast_payload = broadcaster.broadcast.await_args_list[-1].args[0]
     assert broadcast_payload["type"] == StreamMessageType.COMPLETE.value
     assert broadcast_payload["data"]["status"] == RunStatus.FAILED.value
-    assert broadcast_payload["run_id"] == "1234567890ab"
+    assert broadcast_payload["run_id"] == "r1234567890a"
 
 
 @pytest.mark.asyncio
