@@ -97,20 +97,20 @@ class Broadcaster:
                 logger.exception("Unexpected error sending to WebSocket")
                 await self.unregister(client)
 
+        async def _send_after(previous: Optional[asyncio.Task[None]], client: WebSocket) -> None:
+            if previous is not None:
+                # Queue this send behind the previous one for this client to preserve order
+                with contextlib.suppress(Exception):
+                    await previous
+            await _send(client)
+
         for client in clients:
             async with self._lock:
-                pending = self._pending.get(client)
-                if pending and not pending.done():
-                    logger.warning("Dropping slow WebSocket %s due to pending send", id(client))
-                    drop_client = True
-                else:
-                    drop_client = False
+                previous = self._pending.get(client)
+                if previous and not previous.done():
+                    logger.info("⏳ Queuing %s behind pending send for client %s", msg_type, id(client))
 
-            if drop_client:
-                await self.unregister(client)
-                continue
-
-            task = asyncio.create_task(_send(client))
+            task = asyncio.create_task(_send_after(previous, client))
             task.add_done_callback(
                 lambda completed, ws=client: asyncio.create_task(self._cleanup_pending(ws, completed))
             )
