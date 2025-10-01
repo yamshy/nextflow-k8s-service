@@ -46,7 +46,8 @@ def _build_demo_job_manifest(
     """Build job manifest specifically for the demo workflow.
 
     This simplified version:
-    - Uses local workflow file mounted from ConfigMap
+    - Uses workflow files bundled in the app container image
+    - Init container copies workflows from app image to shared volume
     - Hardcodes demo-optimized resource limits
     - Only accepts batch_count parameter (no arbitrary parameters)
     """
@@ -79,9 +80,9 @@ def _build_demo_job_manifest(
         read_only=True,
     )
 
-    # Mount demo workflow from ConfigMap
+    # Mount workflows from shared emptyDir (populated by init container)
     workflow_volume_mount = k8s_client.V1VolumeMount(
-        name="demo-workflow",
+        name="workflows",
         mount_path="/workflows",
         read_only=True,
     )
@@ -122,11 +123,27 @@ def _build_demo_job_manifest(
         ),
     )
 
-    # Demo workflow ConfigMap (created separately via kubectl apply)
+    # EmptyDir for workflow files (populated by init container from app image)
     workflow_volume = k8s_client.V1Volume(
-        name="demo-workflow",
-        config_map=k8s_client.V1ConfigMapVolumeSource(
-            name="demo-workflow",
+        name="workflows",
+        empty_dir=k8s_client.V1EmptyDirVolumeSource(),
+    )
+
+    # Init container to copy workflows from app image
+    init_container = k8s_client.V1Container(
+        name="copy-workflows",
+        image=settings.app_image,  # Use the app image which has workflows at /app/workflows
+        command=["sh", "-c"],
+        args=["cp -r /app/workflows/* /workflows/"],
+        volume_mounts=[
+            k8s_client.V1VolumeMount(
+                name="workflows",
+                mount_path="/workflows",
+            )
+        ],
+        resources=k8s_client.V1ResourceRequirements(
+            requests={"cpu": "100m", "memory": "64Mi"},
+            limits={"cpu": "200m", "memory": "128Mi"},
         ),
     )
 
@@ -135,6 +152,7 @@ def _build_demo_job_manifest(
         spec=k8s_client.V1PodSpec(
             restart_policy="Never",
             service_account_name=settings.nextflow_service_account,
+            init_containers=[init_container],
             containers=[container],
             volumes=[pvc_volume, config_volume, workflow_volume],
         ),
