@@ -79,7 +79,7 @@ def parse_task_progress(line: str) -> Optional[NextflowTask]:
             tag=match.group("tag"),
             completed=0,
             total=1,
-            status=TaskStatus.RUNNING,
+            status=TaskStatus.PENDING,  # Submitted tasks are pending, not yet running
         )
 
     # Try cached pattern
