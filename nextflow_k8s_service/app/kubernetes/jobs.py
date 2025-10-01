@@ -56,9 +56,12 @@ def _build_demo_job_manifest(
     )
 
     # Simple args for demo workflow - run local file with batch count parameter
+    # Set -name to match run_id so publishDir path matches API expectations
     args = [
         "run",
         "/workflows/demo.nf",
+        "-name",
+        run_id,
         "-c",
         "/etc/nextflow/nextflow.config",
         f"--batches={batch_count}",

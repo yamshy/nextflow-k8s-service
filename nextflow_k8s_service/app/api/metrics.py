@@ -112,8 +112,7 @@ async def get_demo_results(
         raise HTTPException(status_code=400, detail=f"Run {run_id} duration not available")
 
     # Parse results from run-specific report.json
-    # Note: The workflow publishDir should be updated to include run_id
-    # For now, use the default path with a note
+    # Path matches workflow.runName set via `nextflow run -name {run_id}`
     report_path = f"/workspace/results/{run_id}/report.json"
 
     # Estimate worker pods based on typical batch count
