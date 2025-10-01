@@ -53,6 +53,7 @@ class PipelineManager:
         job_name: str,
         job_creator: Callable[[], Awaitable[Any]],
         log_suffix: str = "",
+        batch_count: int = 5,
     ) -> RunResponse:
         """Common pipeline start logic shared between demo and legacy runs.
 
@@ -61,6 +62,7 @@ class PipelineManager:
             job_name: Kubernetes job name
             job_creator: Async callable that creates the Kubernetes job
             log_suffix: Additional info for logging (e.g., batch_count)
+            batch_count: Number of batches in the workflow (for progress calculation)
 
         Returns:
             RunResponse with run details
@@ -123,7 +125,7 @@ class PipelineManager:
 
         log_started = False
         try:
-            await self._log_streamer.start(run_id=run_id, job_name=job_name)
+            await self._log_streamer.start(run_id=run_id, job_name=job_name, batch_count=batch_count)
             log_started = True
             await self._schedule_monitor(run_id=run_id, job_name=job_name)
         except Exception as exc:
@@ -217,6 +219,7 @@ class PipelineManager:
                 run_id=run_id, batch_count=request.batch_count, settings=self._settings
             ),
             log_suffix=f" (batch_count={request.batch_count})",
+            batch_count=request.batch_count,
         )
 
     async def _schedule_monitor(self, *, run_id: str, job_name: str) -> None:

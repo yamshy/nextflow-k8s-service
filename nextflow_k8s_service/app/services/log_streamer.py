@@ -19,6 +19,7 @@ from ..parsers.nextflow_log_parser import (
     parse_task_progress,
 )
 from ..utils.broadcaster import Broadcaster
+from .progress_calculator import ProgressCalculator
 from .state_store import StateStore
 
 logger = logging.getLogger(__name__)
@@ -53,11 +54,17 @@ class LogStreamer:
         self._task_states: dict[str, dict[str, NextflowTask]] = {}
         # Track resource metrics per run: run_id -> metrics
         self._resource_metrics: dict[str, dict[str, Any]] = {}
+        # Track progress calculators per run
+        self._progress_calculators: dict[str, ProgressCalculator] = {}
+        # Track last workflow progress broadcast
+        self._last_workflow_progress_broadcast: dict[str, datetime] = {}
 
-    async def start(self, run_id: str, job_name: str) -> None:
+    async def start(self, run_id: str, job_name: str, batch_count: int = 5) -> None:
         async with self._lock:
             if run_id in self._tasks:
                 return
+            # Initialize progress calculator for this run
+            self._progress_calculators[run_id] = ProgressCalculator(batch_count=batch_count)
             stop_event = asyncio.Event()
             task = asyncio.create_task(
                 self._stream_loop(
@@ -78,8 +85,10 @@ class LogStreamer:
             self._last_status_broadcast.pop(run_id, None)
             self._last_task_progress_broadcast.pop(run_id, None)
             self._last_resource_broadcast.pop(run_id, None)
+            self._last_workflow_progress_broadcast.pop(run_id, None)
             self._task_states.pop(run_id, None)
             self._resource_metrics.pop(run_id, None)
+            self._progress_calculators.pop(run_id, None)
             self._log_cursors.clear()
         if stop_event:
             stop_event.set()
@@ -217,11 +226,14 @@ class LogStreamer:
                 if pending_lines:
                     pending_lines = await self._flush_logs(run_id, pending_lines)
 
-                # Broadcast task progress if state changed
+                # Broadcast task progress if state changed (legacy)
                 await self._broadcast_task_progress(run_id)
 
-                # Broadcast resource usage periodically
+                # Broadcast resource usage periodically (legacy)
                 await self._broadcast_resource_usage(run_id, len(pods))
+
+                # Broadcast unified workflow progress (new)
+                await self._broadcast_workflow_progress(run_id)
 
                 await self._sleep(stop_event)
         except Exception:  # pragma: no cover - ensure we log unexpected failures
@@ -445,6 +457,51 @@ class LogStreamer:
             },
         )
         self._last_resource_broadcast[run_id] = now
+
+    async def _broadcast_workflow_progress(self, run_id: str) -> None:
+        """Broadcast unified workflow progress with all calculated metrics."""
+        now = datetime.now(timezone.utc)
+        last_sent = self._last_workflow_progress_broadcast.get(run_id)
+
+        # Broadcast at most once per second
+        if last_sent and (now - last_sent) < timedelta(seconds=1):
+            return
+
+        # Get progress calculator for this run
+        calculator = self._progress_calculators.get(run_id)
+        if not calculator:
+            logger.debug("No progress calculator for run %s", run_id)
+            return
+
+        # Get current task states and resource metrics
+        task_states = self._task_states.get(run_id, {})
+        metrics = self._resource_metrics.get(run_id, {})
+
+        if not task_states:
+            logger.debug("No tasks tracked yet for run %s", run_id)
+            return
+
+        try:
+            # Calculate comprehensive progress
+            workflow_progress = calculator.calculate_progress(
+                task_states=task_states,
+                executor_info=metrics.get("executor_info"),
+                active_pods=metrics.get("active_pods", 0),
+            )
+
+            # Convert to JSON-serializable format
+            progress_data = workflow_progress.model_dump(mode="json")
+
+            logger.info("Broadcasting workflow_progress for run %s", run_id)
+            await self._broadcast(
+                run_id,
+                StreamMessageType.WORKFLOW_PROGRESS,
+                progress_data,
+            )
+            self._last_workflow_progress_broadcast[run_id] = now
+
+        except Exception as exc:
+            logger.exception("Failed to broadcast workflow_progress for run %s: %s", run_id, exc)
 
     async def _sleep(self, stop_event: asyncio.Event) -> None:
         try:
