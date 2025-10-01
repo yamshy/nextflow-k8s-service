@@ -4,6 +4,7 @@ This configuration is optimized for the specific demo workflow running
 on a homelab Kubernetes cluster with 50Gi memory and 14 CPU quota.
 """
 
+import os
 from functools import lru_cache
 from typing import Optional
 
@@ -19,6 +20,19 @@ DEMO_WORKFLOW_PATH = "/app/workflows/demo.nf"
 DEMO_WORKFLOW_CONFIG_PATH = "/app/workflows/nextflow.config"
 
 
+def _infer_app_image() -> str:
+    """Ensure the Nextflow init container uses the same image as the API."""
+
+    image = os.environ.get("APP_IMAGE")
+    if image:
+        return image
+
+    raise ValueError(
+        "APP_IMAGE environment variable must be set so init containers copy "
+        "workflows from the same build as the API image."
+    )
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
@@ -27,7 +41,7 @@ class Settings(BaseSettings):
     nextflow_service_account: str = Field(default="nextflow-runner")
     nextflow_image: str = Field(default="nextflow/nextflow:25.04.7")
     app_image: str = Field(
-        default="ghcr.io/yamshy/nextflow-k8s-service:latest",
+        default_factory=_infer_app_image,
         description="App image containing bundled workflows",
     )
     job_active_deadline_seconds: int = Field(default=3600)

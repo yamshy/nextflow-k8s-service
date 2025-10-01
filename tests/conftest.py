@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -6,3 +7,6 @@ repo_root = Path(__file__).resolve().parents[1]
 app_path = repo_root / "nextflow_k8s_service"
 if str(app_path) not in sys.path:
     sys.path.insert(0, str(app_path))
+
+
+os.environ.setdefault("APP_IMAGE", "ghcr.io/yamshy/nextflow-k8s-service:test")
