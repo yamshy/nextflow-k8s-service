@@ -21,6 +21,7 @@ app/
   utils/broadcaster.py    WebSocket fan-out primitive
 examples/simple-pipeline/ Minimal Nextflow workflow for testing
 k8s-manifests/            Deployment, service, ConfigMap, RBAC specs
+  workflows/              Workflow-specific ConfigMaps
 .env.example              Sample configuration values
 ```
 
@@ -116,6 +117,7 @@ These references help QA teams validate log parsing and progress tracking during
 3. Apply manifests:
    ```bash
    kubectl apply -f k8s-manifests/
+   kubectl apply -f k8s-manifests/workflows/
    ```
 4. Ensure the `nextflow` namespace includes the required resource quotas and that Redis is reachable (`REDIS_URL`).
 
