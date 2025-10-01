@@ -1,138 +1,198 @@
-# Nextflow Pipeline Controller API
+# Data Pipeline Orchestrator - Portfolio Demo API
 
-FastAPI-based microservice that orchestrates single-instance Nextflow pipeline executions on Kubernetes. It serializes pipeline runs, surfaces real-time status/log updates to multiple clients, and provides deployment artifacts for rapid adoption.
+**Purpose-built portfolio showcase** demonstrating cloud-native parallel data processing with real-time streaming on Kubernetes.
+
+> **Important**: This is a **demo-focused application**, not a generic Nextflow orchestrator. It runs a single hardcoded workflow (`workflows/demo.nf`) optimized for portfolio demonstration. Generic pipeline support was removed in v1.10.0.
 
 ## Features
-- Enforces a single active Nextflow run at a time with optimistic locking (memory/Redis)
-- REST API for run orchestration, status queries, cancellation, and history
-- WebSocket broadcast channel for live logs and status updates to multiple clients
-- Kubernetes integration for job creation, monitoring, and cleanup
-- Rate-limited endpoints, health checks, and graceful shutdown hooks
+- **Single demo workflow**: Hardcoded scatter-gather pattern with configurable parallelism (1-12 batches)
+- **Optimistic locking**: Enforces single active run at a time (Redis or in-memory)
+- **Real-time streaming**: WebSocket broadcasting of logs and status to multiple clients
+- **Homelab-optimized**: Resource limits tuned for 50Gi/14 CPU quota
+- **Demo API**: Simplified endpoints focused on portfolio showcase (`/api/v1/demo/*`)
+- **Graceful lifecycle**: Health checks, rate limiting, and clean shutdown
 
 ## Project Layout
 ```
 app/
   main.py                 FastAPI app factory, lifecycle, CORS, rate limiting
-  config.py               Environment-aware settings
-  models.py               Pydantic schemas for requests/responses/events
-  api/                    REST + WebSocket routers
-  services/               Orchestration, state, and log streaming logic
-  kubernetes/             Client helpers, job builders, monitoring utilities
+  config.py               Demo-optimized settings (homelab constants)
+  models.py               Pydantic schemas (DemoRunRequest, DemoResultMetrics, etc.)
+  api/
+    routes.py             Demo-only endpoints (/api/v1/demo/*)
+    websocket.py          WebSocket streaming (/api/v1/pipeline/stream)
+    metrics.py            Prometheus metrics
+  services/
+    pipeline_manager.py   Orchestration (start_demo_run is the only entry point)
+    state_store.py        Redis/in-memory state with optimistic locking
+    log_streamer.py       Real-time log streaming from K8s pods
+  kubernetes/
+    jobs.py               Job creation (create_demo_job for hardcoded workflow)
+    monitor.py            Job status polling
+    client.py             K8s client management
   utils/broadcaster.py    WebSocket fan-out primitive
-examples/simple-pipeline/ Minimal Nextflow workflow for testing
+workflows/
+  demo.nf                 Hardcoded demo workflow (GENERATE → ANALYZE → REPORT)
+  nextflow.config         Nextflow configuration template
 k8s-manifests/            Deployment, service, ConfigMap, RBAC specs
   workflows/              Workflow-specific ConfigMaps
 .env.example              Sample configuration values
 ```
 
 ## Getting Started
+
+### Local Development
 1. **Install dependencies**
-   From the repository root run:
    ```bash
-   uv sync
+   cd /path/to/nextflow-k8s-service
+   uv sync                    # Runtime dependencies
+   uv sync --group dev        # Include dev/test dependencies
    ```
-   This creates `.venv/` (ignored by git) with all runtime requirements and links `nextflow_k8s_service` for imports.
-2. **Configure environment**
-   - Copy `.env.example` to `.env` and update namespace, Redis, and image values.
-   - Ensure the Kubernetes context referenced by `KUBE_CONTEXT` has permissions to manage Jobs/Pods.
+
+2. **Configure environment** (optional for local dev)
+   - Copy `.env.example` to `.env` and customize as needed
+   - Key settings: `NEXTFLOW_NAMESPACE`, `KUBE_CONTEXT`, `REDIS_URL`
+   - Defaults work for most local development scenarios
+
 3. **Run locally**
    ```bash
-   uv run --directory nextflow_k8s_service uvicorn app.main:app --reload --port 8000
+   uv run uvicorn app.main:app --reload --port 8000 --app-dir nextflow_k8s_service
    ```
-4. **Access API**
-   - Open `http://localhost:8000/docs` for interactive OpenAPI docs.
-- WebSocket clients connect to `ws://localhost:8000/api/v1/pipeline/stream`.
 
-## API Overview
+4. **Access API**
+   - OpenAPI docs: `http://localhost:8000/docs`
+   - Start demo: `POST /api/v1/demo/run` with `{"batch_count": 5}`
+   - WebSocket: `ws://localhost:8000/api/v1/pipeline/stream`
+
+### Demo Workflow
+
+The hardcoded workflow at `workflows/demo.nf`:
+- **GENERATE**: Creates CSV batches (100 rows each) - 5s per batch
+- **ANALYZE**: Computes statistics (sum, average) - 3s per batch
+- **REPORT**: Aggregates into final JSON report
+- **Parameter**: `--batches` (1-12, default 5)
+- **Runtime**: ~45-60 seconds for 5 batches
+- **Output**: `/workspace/results/{run_id}/report.json`
+
+## API Overview (Demo Endpoints Only)
+
+**Breaking change in v1.10.0**: Generic `/api/v1/pipeline/*` endpoints removed.
+
 | Method | Path                         | Description |
 | ------ | ---------------------------- | ----------- |
-| POST   | `/api/v1/pipeline/run`       | Start a run or attach to the active run |
-| GET    | `/api/v1/pipeline/status`    | Retrieve active or most recent run status |
-| GET    | `/api/v1/pipeline/active`    | Query whether a run is currently active |
-| DELETE | `/api/v1/pipeline/cancel`    | Cancel the active run |
-| GET    | `/api/v1/pipeline/history`   | List historical runs (bounded) |
-| WS     | `/api/v1/pipeline/stream`    | Receive live logs/status broadcasts |
+| POST   | `/api/v1/demo/run`           | Start demo with `{"batch_count": 5, "triggered_by": "..."}` |
+| GET    | `/api/v1/demo/preview`       | Preview resource usage without running (query: `?batch_count=5`) |
+| GET    | `/api/v1/demo/status`        | Current run status with progress percentage |
+| GET    | `/api/v1/demo/active`        | Check if a run is currently active |
+| DELETE | `/api/v1/demo/cancel`        | Cancel the active run |
+| GET    | `/api/v1/demo/history`       | List recent runs (query: `?limit=10`) |
+| WS     | `/api/v1/pipeline/stream`    | Real-time logs and status broadcasts |
 | GET    | `/health`, `/healthz`        | Service health probe |
 
 ## Real-time Streaming
 
-The `/api/v1/pipeline/stream` WebSocket endpoint accepts multiple concurrent clients (up to the limit specified by
-`MAX_WEBSOCKET_CONNECTIONS`) and fan-outs structured JSON envelopes:
+The `/api/v1/pipeline/stream` WebSocket endpoint supports multiple concurrent clients (up to 100, configurable via
+`MAX_WEBSOCKET_CONNECTIONS`) and broadcasts structured JSON messages:
 
 ```json
 {
   "type": "status" | "progress" | "log" | "complete" | "error",
   "data": { ... },
   "timestamp": "2024-04-01T12:00:00Z",
-  "run_id": "4f3a7c9b1d2e"
+  "run_id": "r1234567890a"
 }
 ```
 
-- **status** – lifecycle transitions (`queued`, `starting`, `running`, `cancelled`, etc.) and keep-alive pings.
-- **progress** – parsed `[completed/total] process > ...` indicators with a computed percentage.
-- **log** – batched log entries (max 50 lines) that include pod/container metadata and timestamps.
-- **complete** – terminal state summaries containing the persisted `RunInfo` payload.
-- **error** – surfaced Kubernetes or Nextflow errors (`WARN`/`ERROR` lines, monitor failures, pod startup issues).
+**Message types:**
+- **status** – Lifecycle transitions (QUEUED → STARTING → RUNNING → SUCCEEDED/FAILED/CANCELLED)
+- **progress** – Parsed `[completed/total]` indicators with percentage (based on Nextflow process completion)
+- **log** – Batched log entries (max 50 lines) with pod/container metadata and ISO timestamps
+- **complete** – Terminal state with final `RunInfo` payload (includes duration, status, etc.)
+- **error** – Kubernetes/Nextflow errors (WARN/ERROR lines, monitor failures, pod issues)
 
-Polling the REST status endpoint still works, but now returns `progress_percent`, a rolling `log_preview`, and the
-current WebSocket URL so dashboards can pivot to streaming when available.
+**REST fallback**: `GET /api/v1/demo/status` returns current state with `progress_percent`, `log_preview` (last 10 lines), and `websocket_url` for clients that prefer polling.
 
-### Test Workflows
+## Resource Allocation (Homelab-Optimized)
 
-`examples/test_workflows.yaml` documents the demo pipelines used in end-to-end testing:
+Designed for resource-constrained homelab with **50Gi memory and 14 CPU quota**:
 
-```yaml
-hello:
-  expected_duration: 30        # seconds
-  expected_processes: 1
-  log_patterns:
-    - "Simple single process output"
+| Component | CPU | Memory | Notes |
+|-----------|-----|--------|-------|
+| Controller pod | 2 CPU | 4Gi | Nextflow orchestrator (fixed) |
+| Worker pod | 1 CPU | 4GB | GENERATE/ANALYZE processes (fixed) |
+| **Max capacity** | **14 CPU** | **52GB** | 12 batches = 24 workers + controller |
 
-rnaseq-test:
-  expected_duration: 120       # ~2 minutes
-  expected_processes: "5-7"
-  log_patterns:
-    - "FASTQC"
-    - "trimming"
-    - "alignment"
-
-parallel-demo:
-  expected_duration: 180       # ~3 minutes
-  expected_processes: "10-15"
-  log_patterns:
-    - "Parallel execution"
-    - "scatter"
-    - "gather"
-```
-
-These references help QA teams validate log parsing and progress tracking during manual or automated smoke tests.
+**Scaling behavior:**
+- 5 batches (default): 10 workers + controller = 12 CPU + 44GB ✅
+- 12 batches (max): 24 workers + controller = 26 CPU + 100GB ❌ exceeds quota
+- **Safe limit**: 12 batches (fits within quota with minimal overhead)
 
 ## Kubernetes Deployment
-1. Build and push the service image (context is repo root):
+
+### Container Image
+Automated via GitHub Actions on push to `main`:
+```bash
+# Image pushed to: ghcr.io/<owner>/nextflow-k8s-service:latest
+# Also tagged with semantic version (e.g., v1.10.1)
+```
+
+### Manual Deployment (if needed)
+1. **Build and push**:
    ```bash
    docker build -t <registry>/nextflow-k8s-service:latest .
    docker push <registry>/nextflow-k8s-service:latest
    ```
-2. Update the image reference in `k8s-manifests/deployment.yaml` and the ConfigMap values as needed.
-3. Apply manifests:
-   ```bash
-   kubectl apply -f k8s-manifests/
-   kubectl apply -f k8s-manifests/workflows/
-   ```
-4. Ensure the `nextflow` namespace includes the required resource quotas and that Redis is reachable (`REDIS_URL`).
 
-## Example Pipeline
-`examples/simple-pipeline/` contains a minimal Nextflow DSL2 pipeline (`main.nf`) with a matching `nextflow.config` profile for Kubernetes execution. Use it to verify the service end-to-end by referencing the directory in your run parameters.
+2. **Deploy to Kubernetes**:
+   ```bash
+   # Apply deployment manifests
+   kubectl apply -f k8s-manifests/
+
+   # Note: Workflows are bundled in the container image and deployed via init container
+   # No separate ConfigMap creation needed
+   ```
+
+3. **Prerequisites**:
+   - Namespace: `nextflow` (or custom via `NEXTFLOW_NAMESPACE`)
+   - PVC: `nextflow-work-pvc` for shared workspace
+   - ServiceAccount: `nextflow-runner` with permissions to create Jobs/Pods
+   - Optional: Redis instance (URL via `REDIS_URL` env var)
+
+### Configuration
+Set environment variables in deployment:
+- `NEXTFLOW_NAMESPACE`: K8s namespace (default: `nextflow`)
+- `REDIS_URL`: Optional Redis URL (falls back to in-memory)
+- `ALLOWED_ORIGINS`: CORS origins (default: `["*"]`)
+- Resource limits are hardcoded in `app/config.py` (homelab-optimized)
 
 ## Operational Notes
-- The service attempts Redis connectivity on startup; failures fall back to in-memory state and are logged.
-- Logs are timestamp-parsed when emitted with ISO strings; non-conforming lines are still relayed without timestamps.
-- Completed runs are retained in bounded history with TTL trimming to avoid unbounded memory usage.
 
-## Documented Next Steps
-1. **Automated Testing** – Add unit/integration tests (e.g., pytest + respx) to validate pipeline orchestration, state transitions, and WebSocket flows.
-2. **Observability Enhancements** – Integrate structured logging, metrics (Prometheus), and tracing to monitor run performance and failures in production.
-3. **Authentication & Authorization** – Protect REST/WebSocket endpoints using an auth provider (e.g., OAuth2/JWT) and enforce per-user rate limits.
-4. **Persistent State Backend** – Promote Redis (or alternative store) to mandatory with high availability and persistence for multi-instance deployments.
-5. **Pipeline Parameter Validation** – Introduce schema-driven validation against a catalog of supported Nextflow pipelines to prevent misconfigured runs.
-6. **CI/CD Automation** – Configure build pipelines that lint, test, and deploy both the API service and associated Kubernetes assets.
+**State management:**
+- Redis-backed when `REDIS_URL` is set (recommended for production)
+- Falls back to in-memory mode on Redis connection failure (logged at startup)
+- Run history: last 5 runs, 30-minute TTL
+
+**Log streaming:**
+- ISO timestamps parsed from Nextflow logs for client-side ordering
+- Non-conforming log lines still relayed (without parsed timestamp)
+- Log batches capped at 50 lines per broadcast
+
+**Lifecycle:**
+- Single active run enforced via optimistic locking
+- Graceful shutdown: cancels monitor tasks, closes connections
+- Completed jobs auto-deleted after `job_ttl_seconds_after_finished` (15 minutes)
+
+## Portfolio Showcase Focus
+
+This application demonstrates:
+1. **Cloud-native architecture**: Kubernetes-native orchestration with dynamic pod scheduling
+2. **Real-time streaming**: WebSocket broadcasting to multiple clients with structured message types
+3. **Resource optimization**: Quota-aware scheduling for resource-constrained environments
+4. **Resilient state management**: Optimistic locking with Redis fallback
+5. **Production patterns**: Health checks, rate limiting, graceful shutdown, bounded history
+
+**Not included** (intentionally simplified for demo):
+- Multi-tenancy or authentication (portfolio showcase has no auth requirements)
+- Persistent result storage (results expire with PVC cleanup)
+- Multi-workflow support (single hardcoded demo workflow only)
+- Advanced Nextflow features (resume, profiles, complex DAGs)
