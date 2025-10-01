@@ -18,7 +18,6 @@ from ..models import (
     DemoRunRequest,
     RunHistoryEntry,
     RunInfo,
-    RunRequest,
     RunResponse,
     RunStatus,
     StreamMessageType,
@@ -158,52 +157,12 @@ class PipelineManager:
             websocket_url=websocket_url,
         )
 
-    async def start_or_attach_run(self, request: RunRequest) -> RunResponse:
-        """Start a legacy pipeline run or attach to existing active run."""
-        websocket_url = self._websocket_url()
-        active = await self._state_store.get_active_run()
-        if active.active and active.run:
-            return RunResponse(
-                run_id=active.run.run_id,
-                status=active.run.status,
-                attached=True,
-                job_name=active.run.job_name,
-                websocket_url=websocket_url,
-            )
-
-        run_id = uuid.uuid4().hex[:12]
-        job_name = f"nextflow-run-{run_id}"
-
-        acquired = await self._state_store.acquire_active_run(
-            run_id=run_id,
-            job_name=job_name,
-            triggered_by=request.triggered_by,
-        )
-        if not acquired:
-            active = await self._state_store.get_active_run()
-            if active.run:
-                return RunResponse(
-                    run_id=active.run.run_id,
-                    status=active.run.status,
-                    attached=True,
-                    job_name=active.run.job_name,
-                    websocket_url=websocket_url,
-                )
-            raise RuntimeError("Unable to acquire pipeline lock")
-
-        # Delegate to common execution logic
-        return await self._execute_pipeline_start(
-            run_id=run_id,
-            job_name=job_name,
-            job_creator=lambda: jobs.create_job(run_id=run_id, params=request, settings=self._settings),
-        )
-
     async def start_demo_run(self, request: DemoRunRequest) -> RunResponse:
-        """Start a demo pipeline run with simplified parameters.
+        """Start the demo pipeline run.
 
-        This method is specifically for the portfolio demo workflow:
-        - Only accepts batch_count parameter (1-12)
-        - Uses hardcoded demo workflow
+        This is the ONLY way to run a pipeline in this portfolio showcase app.
+        - Runs hardcoded demo workflow only
+        - Accepts batch_count parameter (1-12)
         - Optimized for homelab deployment (50Gi/14 CPU)
         """
         websocket_url = self._websocket_url()

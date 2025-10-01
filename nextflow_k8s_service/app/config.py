@@ -1,10 +1,22 @@
-"""Configuration models for the Nextflow pipeline controller."""
+"""Configuration for the demo portfolio orchestrator.
+
+This configuration is optimized for the specific demo workflow running
+on a homelab Kubernetes cluster with 50Gi memory and 14 CPU quota.
+"""
 
 from functools import lru_cache
 from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Homelab infrastructure constants
+HOMELAB_TOTAL_MEMORY_GI = 50
+HOMELAB_TOTAL_CPU = 14
+
+# Demo workflow constants
+DEMO_WORKFLOW_PATH = "/app/workflows/demo.nf"
+DEMO_WORKFLOW_CONFIG_PATH = "/app/workflows/nextflow.config"
 
 
 class Settings(BaseSettings):
@@ -30,14 +42,24 @@ class Settings(BaseSettings):
     kube_context: Optional[str] = Field(default=None)
     allowed_origins: list[str] = Field(default_factory=lambda: ["*"])
 
-    # Homelab resource quota (50Gi memory, 14 CPU - documentation only)
-    homelab_memory_quota: str = Field(default="50Gi", description="Total memory quota available in homelab")
-    homelab_cpu_quota: int = Field(default=14, description="Total CPU quota available in homelab")
-
-    # Demo workflow configuration - hardcoded for portfolio showcase
-    workflow_path: str = Field(default="/app/workflows/demo.nf", description="Path to demo workflow file")
+    # Demo workflow configuration
     default_batch_count: int = Field(default=5, description="Default number of batches to process")
     max_batch_count: int = Field(default=12, description="Maximum batches allowed (quota: 12*2 workers = 24 pods)")
+
+    @property
+    def workflow_path(self) -> str:
+        """Path to demo workflow - hardcoded constant."""
+        return DEMO_WORKFLOW_PATH
+
+    @property
+    def homelab_memory_quota_gi(self) -> int:
+        """Total homelab memory quota in Gi - hardcoded constant."""
+        return HOMELAB_TOTAL_MEMORY_GI
+
+    @property
+    def homelab_cpu_quota(self) -> int:
+        """Total homelab CPU quota - hardcoded constant."""
+        return HOMELAB_TOTAL_CPU
 
     # Resource limits for Nextflow controller pod - optimized for demo
     # Controller needs 2 CPU + 4Gi for managing up to 12 parallel workers

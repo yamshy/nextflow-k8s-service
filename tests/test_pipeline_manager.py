@@ -8,9 +8,9 @@ import pytest
 from app.config import Settings
 from app.models import (
     ActiveRunStatus,
+    DemoRunRequest,
     RunHistoryEntry,
     RunInfo,
-    RunRequest,
     RunStatus,
     StreamMessageType,
 )
@@ -44,9 +44,9 @@ async def test_start_or_attach_run_returns_existing(mocker) -> None:
         broadcaster=broadcaster,
     )
 
-    run_request = RunRequest(pipeline="hello", parameters={}, triggered_by="tester")
+    run_request = DemoRunRequest(batch_count=5, triggered_by="tester")
 
-    result = await manager.start_or_attach_run(run_request)
+    result = await manager.start_demo_run(run_request)
 
     assert result.run_id == "existing"
     assert result.attached is True
@@ -57,7 +57,7 @@ async def test_start_or_attach_run_returns_existing(mocker) -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_or_attach_run_creates_new_job(mocker) -> None:
+async def test_start_demo_run_creates_new_job(mocker) -> None:
     settings = Settings()
     state_store: StateStore = mocker.AsyncMock(spec=StateStore)
     state_store.get_active_run.return_value = ActiveRunStatus(active=False, run=None)
@@ -86,16 +86,14 @@ async def test_start_or_attach_run_creates_new_job(mocker) -> None:
 
     fake_job = SimpleNamespace(metadata=SimpleNamespace(name="nextflow-run-1234567890ab"))
     mock_create = mocker.AsyncMock(return_value=fake_job)
-    mocker.patch("app.services.pipeline_manager.jobs.create_job", mock_create)
+    mocker.patch("app.services.pipeline_manager.jobs.create_demo_job", mock_create)
 
-    run_request = RunRequest(
-        pipeline="nf",
-        parameters={"profile": "test"},
-        workdir="/data",
+    run_request = DemoRunRequest(
+        batch_count=3,
         triggered_by="ci",
     )
 
-    result = await manager.start_or_attach_run(run_request)
+    result = await manager.start_demo_run(run_request)
 
     assert result.attached is False
     assert result.status == RunStatus.RUNNING
@@ -112,11 +110,11 @@ async def test_start_or_attach_run_creates_new_job(mocker) -> None:
     first_message = broadcaster.broadcast.await_args_list[0].args[0]
     assert first_message["type"] == StreamMessageType.STATUS.value
     assert first_message["data"]["status"] == RunStatus.STARTING.value
-    assert mock_create.await_args.kwargs["params"] == run_request
+    assert mock_create.await_args.kwargs["batch_count"] == 3
 
 
 @pytest.mark.asyncio
-async def test_start_or_attach_run_broadcasts_complete_on_job_creation_failure(mocker) -> None:
+async def test_start_demo_run_broadcasts_complete_on_job_creation_failure(mocker) -> None:
     settings = Settings()
     state_store: StateStore = mocker.AsyncMock(spec=StateStore)
     state_store.get_active_run.return_value = ActiveRunStatus(active=False, run=None)
@@ -147,12 +145,12 @@ async def test_start_or_attach_run_broadcasts_complete_on_job_creation_failure(m
     mocker.patch("app.services.pipeline_manager.uuid.uuid4", return_value=fake_uuid)
 
     creation_error = RuntimeError("boom")
-    mocker.patch("app.services.pipeline_manager.jobs.create_job", side_effect=creation_error)
+    mocker.patch("app.services.pipeline_manager.jobs.create_demo_job", side_effect=creation_error)
 
-    run_request = RunRequest(pipeline="nf", parameters={}, triggered_by="tester")
+    run_request = DemoRunRequest(batch_count=5, triggered_by="tester")
 
     with pytest.raises(RuntimeError) as excinfo:
-        await manager.start_or_attach_run(run_request)
+        await manager.start_demo_run(run_request)
 
     assert str(excinfo.value) == "boom"
 
@@ -173,7 +171,7 @@ async def test_start_or_attach_run_broadcasts_complete_on_job_creation_failure(m
 
 
 @pytest.mark.asyncio
-async def test_start_or_attach_run_cleans_up_on_monitor_failure(mocker) -> None:
+async def test_start_demo_run_cleans_up_on_monitor_failure(mocker) -> None:
     settings = Settings()
     state_store: StateStore = mocker.AsyncMock(spec=StateStore)
     state_store.get_active_run.return_value = ActiveRunStatus(active=False, run=None)
@@ -204,7 +202,7 @@ async def test_start_or_attach_run_cleans_up_on_monitor_failure(mocker) -> None:
 
     fake_job = SimpleNamespace(metadata=SimpleNamespace(name="nextflow-run-1234567890ab"))
     mock_create = mocker.AsyncMock(return_value=fake_job)
-    mocker.patch("app.services.pipeline_manager.jobs.create_job", mock_create)
+    mocker.patch("app.services.pipeline_manager.jobs.create_demo_job", mock_create)
 
     mock_delete = mocker.AsyncMock()
     mocker.patch("app.services.pipeline_manager.jobs.delete_job", mock_delete)
@@ -213,10 +211,10 @@ async def test_start_or_attach_run_cleans_up_on_monitor_failure(mocker) -> None:
     mock_schedule = mocker.AsyncMock(side_effect=schedule_error)
     mocker.patch.object(manager, "_schedule_monitor", mock_schedule)
 
-    run_request = RunRequest(pipeline="nf", parameters={}, triggered_by="tester")
+    run_request = DemoRunRequest(batch_count=5, triggered_by="tester")
 
     with pytest.raises(RuntimeError) as excinfo:
-        await manager.start_or_attach_run(run_request)
+        await manager.start_demo_run(run_request)
 
     assert str(excinfo.value) == "monitor boom"
 
