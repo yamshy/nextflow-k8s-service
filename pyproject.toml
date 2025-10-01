@@ -1,6 +1,6 @@
 [project]
 name = "nextflow-k8s-service"
-version = "1.9.0"
+version = "1.9.1"
 description = "FastAPI controller for single-instance Nextflow pipeline runs on Kubernetes"
 readme = "README.md"
 requires-python = ">=3.13"
