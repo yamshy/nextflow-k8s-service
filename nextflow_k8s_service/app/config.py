@@ -37,10 +37,11 @@ class Settings(BaseSettings):
     controller_memory_limit: str = Field(default="4Gi")
 
     # Resource limits for Nextflow worker pods (pipeline tasks)
-    # Note: These limits override nf-core pipeline defaults via withName: '*'
-    # With 50Gi quota, 6GB allows ~8 parallel workers (48Gi) + controller (4Gi)
+    # Note: These limits override nf-core pipeline defaults via withName: '.*'
+    # With 40Gi memory quota, 6GB allows ~6 parallel workers
+    # With 12 CPU quota, 1 CPU/worker allows ~10 parallel workers (leaving 2 for controller)
     worker_cpu_request: str = Field(default="100m")
-    worker_cpu_limit: str = Field(default="2")
+    worker_cpu_limit: str = Field(default="1")
     worker_memory_request: str = Field(default="512 MB")
     worker_memory_limit: str = Field(default="6 GB")
 
