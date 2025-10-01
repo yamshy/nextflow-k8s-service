@@ -461,6 +461,76 @@ async def _delete_config_map(run_id: str, settings: Settings) -> None:
             logger.warning("Failed to delete ConfigMap %s: %s", config_map_name, exc)
 
 
+async def _delete_workspace_results(run_id: str, settings: Settings) -> None:
+    """Delete workspace results for a run using a cleanup pod.
+
+    Since the results are on a PVC, we need to run a pod with the PVC mounted
+    to delete the run-specific results directory.
+    """
+    kube = get_kubernetes_client(settings)
+    cleanup_pod_name = f"cleanup-{run_id}"
+
+    # Create a simple pod that mounts the PVC and deletes the results
+    pod_manifest = k8s_client.V1Pod(
+        metadata=k8s_client.V1ObjectMeta(
+            name=cleanup_pod_name,
+            namespace=settings.nextflow_namespace,
+            labels={"app": "nextflow-cleanup", "run-id": run_id},
+        ),
+        spec=k8s_client.V1PodSpec(
+            restart_policy="Never",
+            containers=[
+                k8s_client.V1Container(
+                    name="cleanup",
+                    image="busybox:latest",
+                    command=["sh", "-c", f"rm -rf /workspace/results/{run_id} /workspace/work-{run_id}*"],
+                    volume_mounts=[
+                        k8s_client.V1VolumeMount(
+                            name="nextflow-work",
+                            mount_path="/workspace",
+                        ),
+                    ],
+                ),
+            ],
+            volumes=[
+                k8s_client.V1Volume(
+                    name="nextflow-work",
+                    persistent_volume_claim=k8s_client.V1PersistentVolumeClaimVolumeSource(
+                        claim_name="nextflow-work-pvc",
+                    ),
+                ),
+            ],
+        ),
+    )
+
+    def _create_cleanup_pod() -> None:
+        kube.core.create_namespaced_pod(namespace=settings.nextflow_namespace, body=pod_manifest)
+
+    def _delete_cleanup_pod() -> None:
+        kube.core.delete_namespaced_pod(
+            name=cleanup_pod_name,
+            namespace=settings.nextflow_namespace,
+            grace_period_seconds=0,
+        )
+
+    try:
+        # Create cleanup pod
+        await asyncio.to_thread(_create_cleanup_pod)
+        logger.info("Created cleanup pod %s for run %s", cleanup_pod_name, run_id)
+
+        # Wait a few seconds for cleanup to complete
+        await asyncio.sleep(5)
+
+        # Delete cleanup pod
+        await asyncio.to_thread(_delete_cleanup_pod)
+        logger.info("Deleted cleanup pod %s", cleanup_pod_name)
+    except ApiException as exc:
+        if exc.status == 409:  # Pod already exists
+            logger.warning("Cleanup pod %s already exists", cleanup_pod_name)
+        else:
+            logger.warning("Failed to cleanup workspace for run %s: %s", run_id, exc)
+
+
 async def delete_job(job_name: str, settings: Settings, grace_period_seconds: Optional[int] = None) -> None:
     kube = get_kubernetes_client(settings)
 
@@ -482,6 +552,8 @@ async def delete_job(job_name: str, settings: Settings, grace_period_seconds: Op
         if job_name.startswith("nextflow-run-"):
             run_id = job_name.replace("nextflow-run-", "")
             await _delete_config_map(run_id, settings)
+            # Clean up workspace results to free storage
+            await _delete_workspace_results(run_id, settings)
     except ApiException as exc:
         if exc.status == 404:
             logger.warning("Job %s already gone", job_name)
