@@ -124,13 +124,15 @@ jobs:
       - name: Run unit tests with coverage
         run: |
           uv run pytest \
+            -n auto \
             --cov=nextflow_k8s_service \
             --cov-report=term-missing \
             --cov-report=html:htmlcov-${{ matrix.python-version }} \
             --cov-report=xml:coverage-${{ matrix.python-version }}.xml \
             --junit-xml=junit-${{ matrix.python-version }}.xml \
             -m "not integration and not slow" \
-            --maxfail=5
+            --maxfail=5 \
+            --cov-branch
 
       - name: Upload coverage reports
         uses: actions/upload-artifact@v4
@@ -174,17 +176,21 @@ jobs:
       - name: Start Redis for integration tests
         run: |
           docker run -d --name redis-test -p 6379:6379 redis:7-alpine
-          sleep 5
+          # Wait for Redis to be ready
+          timeout 30 bash -c 'until docker exec redis-test redis-cli ping | grep -q PONG; do sleep 1; done'
+          echo "Redis is ready!"
 
       - name: Run integration tests
         env:
           REDIS_URL: redis://localhost:6379
         run: |
           uv run pytest \
+            -n auto \
             -m integration \
             --cov=nextflow_k8s_service \
             --cov-report=xml:coverage-integration.xml \
-            --junit-xml=junit-integration.xml
+            --junit-xml=junit-integration.xml \
+            --cov-branch
 
       - name: Stop Redis
         if: always()
@@ -230,10 +236,10 @@ jobs:
       - name: Run performance tests
         run: |
           uv run pytest \
+            -n auto \
             -m slow \
             --timeout=300 \
-            --junit-xml=junit-performance.xml \
-            || true
+            --junit-xml=junit-performance.xml
 
       - name: Upload performance test results
         if: always()
@@ -265,13 +271,23 @@ jobs:
           python-version: '3.13'
 
       - name: Install coverage tool
-        run: pip install coverage[toml]
+        run: pip install coverage[toml] coverage-badge
 
       - name: Combine coverage reports
         run: |
-          coverage combine coverage-reports/*/coverage*.xml || true
-          coverage report --format=markdown > coverage-summary.md || true
-          coverage html -d combined-coverage || true
+          # Find all XML coverage files and convert them back to .coverage format
+          find coverage-reports -name "*.xml" -exec echo "Processing {}" \;
+
+          # Use coverage combine on XML files (coverage.py 5.0+ supports this)
+          python -m coverage combine --keep coverage-reports/*/coverage*.xml
+
+          # Generate reports
+          coverage report --format=markdown > coverage-summary.md
+          coverage html -d combined-coverage
+          coverage xml -o combined-coverage.xml
+
+          # Generate coverage badge
+          coverage-badge -o coverage-badge.svg
 
       - name: Post coverage comment
         if: github.event_name == 'pull_request'
