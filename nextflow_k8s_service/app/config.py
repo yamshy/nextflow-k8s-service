@@ -1,10 +1,22 @@
-"""Configuration models for the Nextflow pipeline controller."""
+"""Configuration for the demo portfolio orchestrator.
+
+This configuration is optimized for the specific demo workflow running
+on a homelab Kubernetes cluster with 50Gi memory and 14 CPU quota.
+"""
 
 from functools import lru_cache
 from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Homelab infrastructure constants
+HOMELAB_TOTAL_MEMORY_GI = 50
+HOMELAB_TOTAL_CPU = 14
+
+# Demo workflow constants
+DEMO_WORKFLOW_PATH = "/app/workflows/demo.nf"
+DEMO_WORKFLOW_CONFIG_PATH = "/app/workflows/nextflow.config"
 
 
 class Settings(BaseSettings):
@@ -24,26 +36,48 @@ class Settings(BaseSettings):
     monitor_poll_interval_seconds: float = Field(default=2.5)
     log_tail_lines: int = Field(default=150)
     max_websocket_connections: int = Field(default=100)
-    run_history_limit: int = Field(default=20)
-    run_ttl_minutes: int = Field(default=60 * 12)
+    run_history_limit: int = Field(default=5, description="Keep last 5 runs for debugging")
+    run_ttl_minutes: int = Field(default=30, description="Keep run history for 30 minutes")
     redis_url: Optional[str] = Field(default=None)
     kube_context: Optional[str] = Field(default=None)
     allowed_origins: list[str] = Field(default_factory=lambda: ["*"])
 
-    # Resource limits for Nextflow controller pod
-    controller_cpu_request: str = Field(default="500m")
-    controller_cpu_limit: str = Field(default="2")
-    controller_memory_request: str = Field(default="1Gi")
-    controller_memory_limit: str = Field(default="4Gi")
+    # Demo workflow configuration
+    default_batch_count: int = Field(default=5, description="Default number of batches to process")
+    max_batch_count: int = Field(default=12, description="Maximum batches allowed (quota: 12*2 workers = 24 pods)")
 
-    # Resource limits for Nextflow worker pods (pipeline tasks)
-    # Note: These limits override nf-core pipeline defaults via withName: '.*'
-    # With 40Gi memory quota, 6GB allows ~6 parallel workers
-    # With 12 CPU quota, 1 CPU/worker allows ~10 parallel workers (leaving 2 for controller)
-    worker_cpu_request: str = Field(default="100m")
-    worker_cpu_limit: str = Field(default="1")
-    worker_memory_request: str = Field(default="512 MB")
-    worker_memory_limit: str = Field(default="6 GB")
+    @property
+    def workflow_path(self) -> str:
+        """Path to demo workflow - hardcoded constant."""
+        return DEMO_WORKFLOW_PATH
+
+    @property
+    def homelab_memory_quota_gi(self) -> int:
+        """Total homelab memory quota in Gi - hardcoded constant."""
+        return HOMELAB_TOTAL_MEMORY_GI
+
+    @property
+    def homelab_cpu_quota(self) -> int:
+        """Total homelab CPU quota - hardcoded constant."""
+        return HOMELAB_TOTAL_CPU
+
+    # Resource limits for Nextflow controller pod - optimized for demo
+    # Controller needs 2 CPU + 4Gi for managing up to 12 parallel workers
+    controller_cpu_request: str = Field(default="1")
+    controller_cpu_limit: str = Field(default="2", description="Fixed: Demo controller needs 2 CPU")
+    controller_memory_request: str = Field(default="2Gi")
+    controller_memory_limit: str = Field(default="4Gi", description="Fixed: Demo controller needs 4Gi")
+
+    # Resource limits for Nextflow worker pods - optimized for homelab (50Gi/14 CPU)
+    # With 50Gi memory and 14 CPU quota:
+    # - Controller uses: 2 CPU + 4Gi
+    # - Remaining for workers: 12 CPU + 46Gi
+    # - Per worker: 1 CPU + 4GB allows 12 parallel workers (max batch_count=12)
+    # - 5 batches (default) = 10 workers = 10 CPU + 40GB (fits within quota)
+    worker_cpu_request: str = Field(default="500m")
+    worker_cpu_limit: str = Field(default="1", description="Fixed: 1 CPU per worker")
+    worker_memory_request: str = Field(default="2 GB")
+    worker_memory_limit: str = Field(default="4 GB", description="Fixed: 4GB per worker")
 
 
 @lru_cache()

@@ -11,7 +11,8 @@ from slowapi import Limiter
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
-from .api.routes import router as pipeline_router
+from .api.metrics import router as metrics_router
+from .api.routes import demo_router
 from .api.websocket import router as websocket_router
 from .config import Settings, get_settings
 from .services.log_streamer import LogStreamer
@@ -75,7 +76,8 @@ def create_app() -> FastAPI:
     settings = get_settings()
 
     app = FastAPI(
-        title="Nextflow Pipeline Controller",
+        title="Data Pipeline Orchestrator - Portfolio Demo",
+        description="Cloud-native parallel data processing showcase on Kubernetes",
         version=version("nextflow-k8s-service"),
         lifespan=lifespan,
     )
@@ -94,7 +96,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.include_router(pipeline_router, prefix="/api/v1")
+    # Demo routers - this is a purpose-built portfolio showcase application
+    app.include_router(demo_router, prefix="/api/v1")
+    app.include_router(metrics_router, prefix="/api/v1")
     app.include_router(websocket_router, prefix="/api/v1")
 
     async def _healthcheck(state_store: StateStore = Depends(get_state_store)) -> dict[str, str]:

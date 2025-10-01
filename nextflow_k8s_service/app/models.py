@@ -19,6 +19,27 @@ class RunStatus(str, Enum):
     UNKNOWN = "unknown"
 
 
+class DemoWorkflowParameters(BaseModel):
+    """Parameters specific to the demo data processing pipeline."""
+
+    batch_count: int = Field(
+        default=5,
+        ge=1,
+        le=12,
+        description="Number of data batches to process in parallel (1-12, optimized for 50Gi/14 CPU quota)",
+    )
+
+
+class DemoRunRequest(BaseModel):
+    """Request to start the demo pipeline."""
+
+    batch_count: int = Field(default=5, ge=1, le=12, description="Number of data batches to process in parallel")
+    triggered_by: Optional[str] = Field(
+        None, description="Identifier for the caller that triggered the run (e.g., 'portfolio-visitor', 'admin')"
+    )
+
+
+# Legacy models - kept for backward compatibility during transition
 class PipelineParameters(BaseModel):
     pipeline: str = Field(..., description="Name of the Nextflow pipeline to run")
     workdir: Optional[str] = Field(None, description="Working directory for pipeline execution")
@@ -46,6 +67,18 @@ class RunResponse(BaseModel):
     websocket_url: Optional[str] = None
 
 
+class DemoResultMetrics(BaseModel):
+    """Metrics extracted from demo pipeline results."""
+
+    total_batches: int = Field(description="Number of batches processed")
+    total_records: int = Field(description="Total records across all batches")
+    total_sum: int = Field(description="Sum of all values")
+    average_value: float = Field(description="Average value across all records")
+    worker_pods_spawned: int = Field(description="Number of worker pods spawned during execution")
+    execution_time_seconds: float = Field(description="Total execution time")
+    report_path: str = Field(description="Path to the generated report.json")
+
+
 class ActiveRunStatus(BaseModel):
     active: bool
     run: Optional[RunInfo] = None
@@ -54,6 +87,14 @@ class ActiveRunStatus(BaseModel):
     websocket_url: Optional[str] = None
     connected_clients: int = 0
     last_update: Optional[datetime] = None
+    # Demo-specific enhancements
+    batches_generated: Optional[int] = Field(None, description="Number of GENERATE processes completed")
+    batches_analyzed: Optional[int] = Field(None, description="Number of ANALYZE processes completed")
+    estimated_completion: Optional[datetime] = Field(
+        None, description="Estimated completion time (based on 45-60s runtime)"
+    )
+    parallel_workers_active: Optional[int] = Field(None, description="Current number of active worker pods")
+    demo_metrics: Optional[DemoResultMetrics] = Field(None, description="Final metrics after completion")
 
 
 class RunHistoryEntry(BaseModel):

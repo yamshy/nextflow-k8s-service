@@ -7,7 +7,7 @@ import logging
 import uuid
 import contextlib
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from ..config import Settings
 from ..kubernetes import jobs
@@ -15,9 +15,9 @@ from ..kubernetes.monitor import wait_for_completion
 from ..models import (
     ActiveRunStatus,
     CancelResponse,
+    DemoRunRequest,
     RunHistoryEntry,
     RunInfo,
-    RunRequest,
     RunResponse,
     RunStatus,
     StreamMessageType,
@@ -45,37 +45,29 @@ class PipelineManager:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._task_lock = asyncio.Lock()
 
-    async def start_or_attach_run(self, request: RunRequest) -> RunResponse:
+    async def _execute_pipeline_start(
+        self,
+        *,
+        run_id: str,
+        job_name: str,
+        job_creator: Callable[[], Awaitable[Any]],
+        log_suffix: str = "",
+    ) -> RunResponse:
+        """Common pipeline start logic shared between demo and legacy runs.
+
+        Args:
+            run_id: Unique run identifier
+            job_name: Kubernetes job name
+            job_creator: Async callable that creates the Kubernetes job
+            log_suffix: Additional info for logging (e.g., batch_count)
+
+        Returns:
+            RunResponse with run details
+
+        Raises:
+            Exception: If job creation or monitoring setup fails
+        """
         websocket_url = self._websocket_url()
-        active = await self._state_store.get_active_run()
-        if active.active and active.run:
-            return RunResponse(
-                run_id=active.run.run_id,
-                status=active.run.status,
-                attached=True,
-                job_name=active.run.job_name,
-                websocket_url=websocket_url,
-            )
-
-        run_id = uuid.uuid4().hex[:12]
-        job_name = f"nextflow-run-{run_id}"
-
-        acquired = await self._state_store.acquire_active_run(
-            run_id=run_id,
-            job_name=job_name,
-            triggered_by=request.triggered_by,
-        )
-        if not acquired:
-            active = await self._state_store.get_active_run()
-            if active.run:
-                return RunResponse(
-                    run_id=active.run.run_id,
-                    status=active.run.status,
-                    attached=True,
-                    job_name=active.run.job_name,
-                    websocket_url=websocket_url,
-                )
-            raise RuntimeError("Unable to acquire pipeline lock")
 
         await self._state_store.update_progress(percent=0.0)
         await self._broadcast_message(
@@ -88,7 +80,7 @@ class PipelineManager:
         )
 
         try:
-            job = await jobs.create_job(run_id=run_id, params=request, settings=self._settings)
+            job = await job_creator()
         except Exception as exc:
             run_info = await self._state_store.finish_active_run(RunStatus.FAILED, message=str(exc))
             await self._broadcast_message(
@@ -121,6 +113,7 @@ class PipelineManager:
                 "job_name": job_name,
             },
         )
+
         log_started = False
         try:
             await self._log_streamer.start(run_id=run_id, job_name=job_name)
@@ -153,7 +146,8 @@ class PipelineManager:
                     await monitor_task
             await self._state_store.set_monitor_task(None)
             raise
-        logger.info("Started Nextflow run %s with job %s", run_id, job.metadata.name)
+
+        logger.info("Started Nextflow run %s with job %s%s", run_id, job.metadata.name, log_suffix)
 
         return RunResponse(
             run_id=run_id,
@@ -161,6 +155,55 @@ class PipelineManager:
             attached=False,
             job_name=job.metadata.name,
             websocket_url=websocket_url,
+        )
+
+    async def start_demo_run(self, request: DemoRunRequest) -> RunResponse:
+        """Start the demo pipeline run.
+
+        This is the ONLY way to run a pipeline in this portfolio showcase app.
+        - Runs hardcoded demo workflow only
+        - Accepts batch_count parameter (1-12)
+        - Optimized for homelab deployment (50Gi/14 CPU)
+        """
+        websocket_url = self._websocket_url()
+        active = await self._state_store.get_active_run()
+        if active.active and active.run:
+            return RunResponse(
+                run_id=active.run.run_id,
+                status=active.run.status,
+                attached=True,
+                job_name=active.run.job_name,
+                websocket_url=websocket_url,
+            )
+
+        run_id = uuid.uuid4().hex[:12]
+        job_name = f"nextflow-run-{run_id}"
+
+        acquired = await self._state_store.acquire_active_run(
+            run_id=run_id,
+            job_name=job_name,
+            triggered_by=request.triggered_by,
+        )
+        if not acquired:
+            active = await self._state_store.get_active_run()
+            if active.run:
+                return RunResponse(
+                    run_id=active.run.run_id,
+                    status=active.run.status,
+                    attached=True,
+                    job_name=active.run.job_name,
+                    websocket_url=websocket_url,
+                )
+            raise RuntimeError("Unable to acquire pipeline lock")
+
+        # Delegate to common execution logic with demo-specific job creator
+        return await self._execute_pipeline_start(
+            run_id=run_id,
+            job_name=job_name,
+            job_creator=lambda: jobs.create_demo_job(
+                run_id=run_id, batch_count=request.batch_count, settings=self._settings
+            ),
+            log_suffix=f" (batch_count={request.batch_count})",
         )
 
     async def _schedule_monitor(self, *, run_id: str, job_name: str) -> None:
