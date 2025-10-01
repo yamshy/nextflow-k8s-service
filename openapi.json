@@ -1,22 +1,24 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Nextflow Pipeline Controller",
-    "version": "1.9.3"
+    "title": "Data Pipeline Orchestrator - Portfolio Demo",
+    "description": "Cloud-native parallel data processing showcase on Kubernetes",
+    "version": "1.10.0"
   },
   "paths": {
-    "/api/v1/pipeline/run": {
+    "/api/v1/demo/run": {
       "post": {
         "tags": [
-          "pipeline"
+          "demo"
         ],
-        "summary": "Start Run",
-        "operationId": "start_run_api_v1_pipeline_run_post",
+        "summary": "Start Demo Run",
+        "description": "Start a new demo pipeline run with specified batch count.",
+        "operationId": "start_demo_run_api_v1_demo_run_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RunRequest"
+                "$ref": "#/components/schemas/DemoRunRequest"
               }
             }
           },
@@ -46,13 +48,64 @@
         }
       }
     },
-    "/api/v1/pipeline/status": {
+    "/api/v1/demo/preview": {
       "get": {
         "tags": [
-          "pipeline"
+          "demo"
+        ],
+        "summary": "Preview Demo Run",
+        "description": "Preview what the demo run will execute without actually running it.",
+        "operationId": "preview_demo_run_api_v1_demo_preview_get",
+        "parameters": [
+          {
+            "name": "batch_count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 12,
+              "minimum": 1,
+              "description": "Number of batches to process",
+              "default": 5,
+              "title": "Batch Count"
+            },
+            "description": "Number of batches to process"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Preview Demo Run Api V1 Demo Preview Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/demo/status": {
+      "get": {
+        "tags": [
+          "demo"
         ],
         "summary": "Current Status",
-        "operationId": "current_status_api_v1_pipeline_status_get",
+        "description": "Get current status of the active demo run.",
+        "operationId": "current_status_api_v1_demo_status_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -67,13 +120,14 @@
         }
       }
     },
-    "/api/v1/pipeline/active": {
+    "/api/v1/demo/active": {
       "get": {
         "tags": [
-          "pipeline"
+          "demo"
         ],
         "summary": "Active Run",
-        "operationId": "active_run_api_v1_pipeline_active_get",
+        "description": "Check if there's an active demo run.",
+        "operationId": "active_run_api_v1_demo_active_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -88,13 +142,14 @@
         }
       }
     },
-    "/api/v1/pipeline/cancel": {
+    "/api/v1/demo/cancel": {
       "delete": {
         "tags": [
-          "pipeline"
+          "demo"
         ],
         "summary": "Cancel Run",
-        "operationId": "cancel_run_api_v1_pipeline_cancel_delete",
+        "description": "Cancel the currently active demo run.",
+        "operationId": "cancel_run_api_v1_demo_cancel_delete",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -109,13 +164,14 @@
         }
       }
     },
-    "/api/v1/pipeline/history": {
+    "/api/v1/demo/history": {
       "get": {
         "tags": [
-          "pipeline"
+          "demo"
         ],
         "summary": "Run History",
-        "operationId": "run_history_api_v1_pipeline_history_get",
+        "description": "Get history of recent demo runs.",
+        "operationId": "run_history_api_v1_demo_history_get",
         "parameters": [
           {
             "name": "limit",
@@ -140,7 +196,7 @@
                   "items": {
                     "$ref": "#/components/schemas/RunHistoryEntry"
                   },
-                  "title": "Response Run History Api V1 Pipeline History Get"
+                  "title": "Response Run History Api V1 Demo History Get"
                 }
               }
             }
@@ -151,6 +207,105 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/demo/metrics": {
+      "get": {
+        "tags": [
+          "demo-metrics"
+        ],
+        "summary": "Aggregate Metrics",
+        "description": "Get aggregate statistics across all demo runs.\n\nReturns portfolio-ready metrics including:\n- Total runs executed\n- Success/failure rates\n- Average execution time\n- Total data processed",
+        "operationId": "aggregate_metrics_api_v1_demo_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Aggregate Metrics Api V1 Demo Metrics Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/demo/results/{run_id}": {
+      "get": {
+        "tags": [
+          "demo-metrics"
+        ],
+        "summary": "Get Demo Results",
+        "description": "Get parsed results for a specific demo run.\n\nArgs:\n    run_id: The run ID to get results for\n\nReturns:\n    DemoResultMetrics if the run completed successfully and results are available\n\nRaises:\n    HTTPException: If run not found or results not available",
+        "operationId": "get_demo_results_api_v1_demo_results__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/DemoResultMetrics"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Demo Results Api V1 Demo Results  Run Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/demo/showcase": {
+      "get": {
+        "tags": [
+          "demo-metrics"
+        ],
+        "summary": "Showcase Summary",
+        "description": "Portfolio-ready summary with all-time statistics.\n\nThis endpoint provides a comprehensive showcase of the demo pipeline's\ncapabilities, optimized for display on a portfolio website.",
+        "operationId": "showcase_summary_api_v1_demo_showcase_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Showcase Summary Api V1 Demo Showcase Get"
                 }
               }
             }
@@ -272,6 +427,66 @@
               }
             ],
             "title": "Last Update"
+          },
+          "batches_generated": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batches Generated",
+            "description": "Number of GENERATE processes completed"
+          },
+          "batches_analyzed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batches Analyzed",
+            "description": "Number of ANALYZE processes completed"
+          },
+          "estimated_completion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Completion",
+            "description": "Estimated completion time (based on 45-60s runtime)"
+          },
+          "parallel_workers_active": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parallel Workers Active",
+            "description": "Current number of active worker pods"
+          },
+          "demo_metrics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DemoResultMetrics"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Final metrics after completion"
           }
         },
         "type": "object",
@@ -320,6 +535,84 @@
           "detail"
         ],
         "title": "CancelResponse"
+      },
+      "DemoResultMetrics": {
+        "properties": {
+          "total_batches": {
+            "type": "integer",
+            "title": "Total Batches",
+            "description": "Number of batches processed"
+          },
+          "total_records": {
+            "type": "integer",
+            "title": "Total Records",
+            "description": "Total records across all batches"
+          },
+          "total_sum": {
+            "type": "integer",
+            "title": "Total Sum",
+            "description": "Sum of all values"
+          },
+          "average_value": {
+            "type": "number",
+            "title": "Average Value",
+            "description": "Average value across all records"
+          },
+          "worker_pods_spawned": {
+            "type": "integer",
+            "title": "Worker Pods Spawned",
+            "description": "Number of worker pods spawned during execution"
+          },
+          "execution_time_seconds": {
+            "type": "number",
+            "title": "Execution Time Seconds",
+            "description": "Total execution time"
+          },
+          "report_path": {
+            "type": "string",
+            "title": "Report Path",
+            "description": "Path to the generated report.json"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_batches",
+          "total_records",
+          "total_sum",
+          "average_value",
+          "worker_pods_spawned",
+          "execution_time_seconds",
+          "report_path"
+        ],
+        "title": "DemoResultMetrics",
+        "description": "Metrics extracted from demo pipeline results."
+      },
+      "DemoRunRequest": {
+        "properties": {
+          "batch_count": {
+            "type": "integer",
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Batch Count",
+            "description": "Number of data batches to process in parallel",
+            "default": 5
+          },
+          "triggered_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triggered By",
+            "description": "Identifier for the caller that triggered the run (e.g., 'portfolio-visitor', 'admin')"
+          }
+        },
+        "type": "object",
+        "title": "DemoRunRequest",
+        "description": "Request to start the demo pipeline."
       },
       "HTTPValidationError": {
         "properties": {
@@ -465,50 +758,6 @@
           "message"
         ],
         "title": "RunInfo"
-      },
-      "RunRequest": {
-        "properties": {
-          "pipeline": {
-            "type": "string",
-            "title": "Pipeline",
-            "description": "Name of the Nextflow pipeline to run"
-          },
-          "workdir": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Workdir",
-            "description": "Working directory for pipeline execution"
-          },
-          "parameters": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Parameters",
-            "description": "Arbitrary Nextflow parameters"
-          },
-          "triggered_by": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Triggered By",
-            "description": "Identifier for the caller that triggered the run"
-          }
-        },
-        "type": "object",
-        "required": [
-          "pipeline"
-        ],
-        "title": "RunRequest"
       },
       "RunResponse": {
         "properties": {
