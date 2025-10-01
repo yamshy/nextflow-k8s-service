@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -198,11 +199,13 @@ async def create_job(run_id: str, params: PipelineParameters, settings: Settings
     # which is required when namespace has ResourceQuota policies
 
     # Parse CPU limit for Nextflow process directives
+    # Nextflow cpus directive requires integers (whole CPUs), even though k8s limits can be fractional
     cpu_limit = settings.worker_cpu_limit
     if cpu_limit.endswith("m"):
-        cpu_numeric = float(cpu_limit.rstrip("m")) / 1000
+        # Convert millicores to CPUs and round up (e.g., 500m -> 1 CPU)
+        cpu_numeric = math.ceil(float(cpu_limit.rstrip("m")) / 1000)
     else:
-        cpu_numeric = float(cpu_limit)
+        cpu_numeric = int(cpu_limit)
 
     # Convert memory format for k8s directives (Nextflow uses GB/MB, k8s uses Gi/Mi)
     # For process directive, use Nextflow format (e.g., "1 GB")
