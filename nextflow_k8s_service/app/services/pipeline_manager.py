@@ -91,12 +91,18 @@ class PipelineManager:
                     "message": str(exc),
                 },
             )
+            # Calculate duration if we have both start and finish times
+            duration_seconds = None
+            if run_info and run_info.started_at and run_info.finished_at:
+                duration_seconds = (run_info.finished_at - run_info.started_at).total_seconds()
+
             await self._broadcast_message(
                 run_id=run_id,
                 message_type=StreamMessageType.COMPLETE,
                 data={
                     "status": RunStatus.FAILED.value,
                     "run": run_info.model_dump() if run_info else None,
+                    "duration_seconds": duration_seconds,
                 },
             )
             raise
@@ -130,12 +136,18 @@ class PipelineManager:
             except Exception:  # pragma: no cover - defensive cleanup
                 logger.exception("Failed to delete job %s after start failure", job_name)
             run_info = await self._state_store.finish_active_run(RunStatus.FAILED, message=str(exc))
+            # Calculate duration if we have both start and finish times
+            duration_seconds = None
+            if run_info and run_info.started_at and run_info.finished_at:
+                duration_seconds = (run_info.finished_at - run_info.started_at).total_seconds()
+
             await self._broadcast_message(
                 run_id=run_id,
                 message_type=StreamMessageType.COMPLETE,
                 data={
                     "status": RunStatus.FAILED.value,
                     "run": run_info.model_dump(mode="json") if run_info else None,
+                    "duration_seconds": duration_seconds,
                 },
             )
             async with self._task_lock:
@@ -257,12 +269,18 @@ class PipelineManager:
                 grace_period_seconds=self._settings.cleanup_grace_period_seconds,
             )
 
+        # Calculate duration if we have both start and finish times
+        duration_seconds = None
+        if run_info and run_info.started_at and run_info.finished_at:
+            duration_seconds = (run_info.finished_at - run_info.started_at).total_seconds()
+
         await self._broadcast_message(
             run_id=run_id,
             message_type=StreamMessageType.COMPLETE,
             data={
                 "status": terminal_status.value,
                 "run": run_info.model_dump(mode="json") if run_info else None,
+                "duration_seconds": duration_seconds,
             },
         )
 
@@ -301,12 +319,18 @@ class PipelineManager:
                     "reason": "Cancelled by user",
                 },
             )
+            # Calculate duration if we have both start and finish times
+            duration_seconds = None
+            if info and info.started_at and info.finished_at:
+                duration_seconds = (info.finished_at - info.started_at).total_seconds()
+
             await self._broadcast_message(
                 run_id=active.run.run_id,
                 message_type=StreamMessageType.COMPLETE,
                 data={
                     "status": RunStatus.CANCELLED.value,
                     "run": info.model_dump(mode="json") if info else None,
+                    "duration_seconds": duration_seconds,
                 },
             )
             await self._state_store.set_monitor_task(None)
