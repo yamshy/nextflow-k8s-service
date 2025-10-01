@@ -57,7 +57,13 @@ class Broadcaster:
             await self._state_store.set_connected_clients(pending_count)
 
     async def broadcast(self, message: dict[str, Any]) -> None:
-        payload = json.dumps(message, default=str)
+        try:
+            payload = json.dumps(message, default=str)
+            logger.debug("Serialized broadcast message: type=%s, size=%d bytes", message.get("type"), len(payload))
+        except Exception as exc:
+            logger.exception("Failed to serialize broadcast message type=%s: %s", message.get("type"), exc)
+            return
+            
         timestamp_raw = message.get("timestamp")
         broadcast_time = datetime.now(timezone.utc)
         if isinstance(timestamp_raw, datetime):
@@ -72,6 +78,7 @@ class Broadcaster:
         if self._state_store:
             await self._state_store.update_last_broadcast(broadcast_time)
         if not clients:
+            logger.debug("No clients connected, skipping broadcast of %s", message.get("type"))
             return
 
         async def _send(client: WebSocket) -> None:
