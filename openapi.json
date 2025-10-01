@@ -3,7 +3,7 @@
   "info": {
     "title": "Data Pipeline Orchestrator - Portfolio Demo",
     "description": "Cloud-native parallel data processing showcase on Kubernetes",
-    "version": "1.12.5"
+    "version": "1.13.0"
   },
   "paths": {
     "/api/v1/demo/run": {
