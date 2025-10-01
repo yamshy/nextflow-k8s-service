@@ -20,7 +20,7 @@ process GENERATE {
     echo "Generating batch ${batch_id}..."
     sleep 5
     for i in {1..100}; do
-        echo "\${batch_id},\$((RANDOM % 1000)),\$((RANDOM % 100))" >> batch_${batch_id}.csv
+        echo "${batch_id},\$((RANDOM % 1000)),\$((RANDOM % 100))" >> batch_${batch_id}.csv
     done
     """
 }
