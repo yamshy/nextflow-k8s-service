@@ -59,14 +59,14 @@ class Broadcaster:
     async def broadcast(self, message: dict[str, Any]) -> None:
         msg_type = message.get("type")
         logger.info("🔔 Broadcaster.broadcast() called for type=%s", msg_type)
-        
+
         try:
             payload = json.dumps(message, default=str)
             logger.info("✅ JSON serialization OK: type=%s, size=%d bytes", msg_type, len(payload))
         except Exception as exc:
             logger.exception("❌ Failed to serialize broadcast message type=%s: %s", msg_type, exc)
             return
-            
+
         timestamp_raw = message.get("timestamp")
         broadcast_time = datetime.now(timezone.utc)
         if isinstance(timestamp_raw, datetime):
@@ -83,7 +83,7 @@ class Broadcaster:
         if not clients:
             logger.info("⚠️  No clients connected, skipping broadcast of %s", msg_type)
             return
-        
+
         logger.info("📨 Sending %s to %d client(s)", msg_type, len(clients))
 
         async def _send(client: WebSocket) -> None:

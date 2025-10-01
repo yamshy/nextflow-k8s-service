@@ -197,4 +197,3 @@ def is_pipeline_complete(line: str) -> Optional[str]:
     if "Pipeline completed with errors" in line or "ERROR" in line:
         return "failed"
     return None
-

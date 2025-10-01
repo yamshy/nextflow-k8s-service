@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from ..models import NextflowTask, TaskStatus
 from ..progress_models import (
@@ -26,14 +26,14 @@ class ProgressCalculator:
     # Phase weights for the demo workflow
     PHASE_WEIGHTS = {
         "GENERATE": 0.3,  # 30% of total work
-        "ANALYZE": 0.6,   # 60% of total work
-        "REPORT": 0.1,    # 10% of total work
+        "ANALYZE": 0.6,  # 60% of total work
+        "REPORT": 0.1,  # 10% of total work
     }
 
     # Expected task counts per batch (for demo workflow)
     TASKS_PER_BATCH = {
         "GENERATE": 1,  # 1 GENERATE task per batch
-        "ANALYZE": 1,   # 1 ANALYZE task per batch
+        "ANALYZE": 1,  # 1 ANALYZE task per batch
     }
 
     def __init__(self, batch_count: int = 5):
@@ -90,9 +90,7 @@ class ProgressCalculator:
             health=health,
         )
 
-    def _group_tasks_by_phase(
-        self, task_states: dict[str, NextflowTask]
-    ) -> dict[str, dict[str, Any]]:
+    def _group_tasks_by_phase(self, task_states: dict[str, NextflowTask]) -> dict[str, dict[str, Any]]:
         """Group tasks by their phase.
 
         Args:
@@ -294,9 +292,7 @@ class ProgressCalculator:
 
         return tasks
 
-    def _calculate_resources(
-        self, executor_info: Optional[str], active_pods: int
-    ) -> ResourceMetrics:
+    def _calculate_resources(self, executor_info: Optional[str], active_pods: int) -> ResourceMetrics:
         """Calculate resource usage metrics.
 
         Args:
@@ -321,7 +317,6 @@ class ProgressCalculator:
 
         # Calculate as percentage of homelab capacity
         cpu_percent = (cpu_usage / 14) * 100  # 14 CPU total
-        memory_percent = (memory_usage_gb / 50) * 100  # 50Gi total
 
         return ResourceMetrics(
             active_pods=active_pods,
@@ -332,9 +327,7 @@ class ProgressCalculator:
             executor=executor_info,
         )
 
-    def _validate_workflow(
-        self, phases: list[WorkflowPhase], task_states: dict[str, NextflowTask]
-    ) -> WorkflowHealth:
+    def _validate_workflow(self, phases: list[WorkflowPhase], task_states: dict[str, NextflowTask]) -> WorkflowHealth:
         """Validate workflow execution order and dependencies.
 
         Args:

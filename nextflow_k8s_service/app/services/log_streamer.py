@@ -12,9 +12,6 @@ from ..config import Settings
 from ..kubernetes.jobs import get_pod_log_stream, list_job_pods
 from ..models import NextflowTask, StreamMessageType, TaskStatus
 from ..parsers.nextflow_log_parser import (
-    extract_pod_count,
-    is_pipeline_complete,
-    is_pipeline_startup,
     parse_executor_info,
     parse_task_progress,
 )
@@ -402,7 +399,7 @@ class LogStreamer:
         if not tasks:
             logger.debug("No tasks tracked yet for run %s", run_id)
             return
-        
+
         logger.info("Broadcasting task_progress for run %s with %d tasks", run_id, len(tasks))
 
         # Get executor info from resource metrics
@@ -416,7 +413,7 @@ class LogStreamer:
             # Serialize tasks to JSON-compatible dicts
             serialized_tasks = [t.model_dump(mode="json") for t in task_list]
             logger.info("✅ Serialized %d tasks, calling _broadcast for run %s", len(serialized_tasks), run_id)
-            
+
             await self._broadcast(
                 run_id,
                 StreamMessageType.TASK_PROGRESS,

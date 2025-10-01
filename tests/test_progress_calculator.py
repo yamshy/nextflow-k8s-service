@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from datetime import datetime, timedelta
 
 from app.models import NextflowTask, TaskStatus
-from app.progress_models import PhaseStatus, WorkflowHealth
+from app.progress_models import PhaseStatus
 from app.services.progress_calculator import ProgressCalculator
 
 

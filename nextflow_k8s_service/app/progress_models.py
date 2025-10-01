@@ -27,9 +27,7 @@ class WorkflowPhase(BaseModel):
     percent: float = Field(0.0, description="Completion percentage for this phase")
     started_at: Optional[datetime] = Field(None, description="When this phase started")
     finished_at: Optional[datetime] = Field(None, description="When this phase finished")
-    estimated_completion: Optional[datetime] = Field(
-        None, description="Estimated completion time for running phases"
-    )
+    estimated_completion: Optional[datetime] = Field(None, description="Estimated completion time for running phases")
 
 
 class OverallProgress(BaseModel):
@@ -49,9 +47,7 @@ class TaskProgress(BaseModel):
     phase: str = Field(..., description="Phase this task belongs to")
     name: str = Field(..., description="Task name")
     tag: Optional[str] = Field(None, description="Task tag/label")
-    progress: dict[str, int] = Field(
-        ..., description="Task progress (completed, total, percent)"
-    )
+    progress: dict[str, int] = Field(..., description="Task progress (completed, total, percent)")
     status: str = Field(..., description="Task status")
     started_at: Optional[datetime] = Field(None, description="Task start time")
     pod_name: Optional[str] = Field(None, description="Associated Kubernetes pod")
@@ -98,8 +94,8 @@ class WorkflowProgress(BaseModel):
         # Phase weights for demo workflow
         PHASE_WEIGHTS = {
             "GENERATE": 0.3,  # 30% of total work
-            "ANALYZE": 0.6,   # 60% of total work
-            "REPORT": 0.1,    # 10% of total work
+            "ANALYZE": 0.6,  # 60% of total work
+            "REPORT": 0.1,  # 10% of total work
         }
 
         # Initialize phase tracking
@@ -166,7 +162,8 @@ class WorkflowProgress(BaseModel):
             total_tasks=total_tasks,
             current_phase=current_phase,
             phase_progress=phases[["GENERATE", "ANALYZE", "REPORT"].index(current_phase)].percent
-                          if current_phase else 0.0,
+            if current_phase
+            else 0.0,
         )
 
         # Validate workflow order

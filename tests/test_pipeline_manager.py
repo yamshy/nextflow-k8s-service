@@ -104,7 +104,9 @@ async def test_start_demo_run_creates_new_job(mocker) -> None:
     mock_create.assert_awaited_once()
     state_store.acquire_active_run.assert_awaited_once()
     state_store.update_active_status.assert_awaited_once_with(RunStatus.RUNNING)
-    log_streamer.start.assert_awaited_once_with(run_id="r1234567890a", job_name="nextflow-run-r1234567890a", batch_count=3)
+    log_streamer.start.assert_awaited_once_with(
+        run_id="r1234567890a", job_name="nextflow-run-r1234567890a", batch_count=3
+    )
     mock_schedule.assert_awaited_once_with(run_id="r1234567890a", job_name="nextflow-run-r1234567890a")
     assert broadcaster.broadcast.await_count >= 2
     first_message = broadcaster.broadcast.await_args_list[0].args[0]
@@ -218,7 +220,9 @@ async def test_start_demo_run_cleans_up_on_monitor_failure(mocker) -> None:
 
     assert str(excinfo.value) == "monitor boom"
 
-    log_streamer.start.assert_awaited_once_with(run_id="r1234567890a", job_name="nextflow-run-r1234567890a", batch_count=5)
+    log_streamer.start.assert_awaited_once_with(
+        run_id="r1234567890a", job_name="nextflow-run-r1234567890a", batch_count=5
+    )
     log_streamer.stop.assert_awaited_once_with("r1234567890a")
 
     mock_delete.assert_awaited_once_with("nextflow-run-r1234567890a", settings=settings, grace_period_seconds=0)
