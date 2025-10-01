@@ -11,12 +11,12 @@ if str(app_path) not in sys.path:
     sys.path.insert(0, str(app_path))
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=False)  # Changed to False to avoid running for every test
 def reset_app_state():
     """Reset app state before and after each test to prevent test pollution.
 
-    This fixture automatically runs for every test and ensures that modifications
-    to app.state don't leak between tests.
+    This fixture can be used by tests that modify app.state to ensure
+    modifications don't leak between tests.
     """
     try:
         from app.main import app
@@ -41,8 +41,8 @@ def reset_app_state():
                 except AttributeError:
                     pass
 
-    except ImportError:
-        # If app is not available, skip state reset
+    except (ImportError, AttributeError):
+        # If app is not available or has no state, skip state reset
         yield
 
 

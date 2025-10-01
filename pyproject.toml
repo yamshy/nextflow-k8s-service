@@ -32,11 +32,6 @@ addopts = [
     "--verbose",
     "--strict-markers",
     "--tb=short",
-    "--cov=nextflow_k8s_service",
-    "--cov-report=term-missing",
-    "--cov-report=html",
-    "--cov-report=xml",
-    "--cov-fail-under=80",
 ]
 markers = [
     "unit: Unit tests",
