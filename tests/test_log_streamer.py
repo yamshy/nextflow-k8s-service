@@ -105,8 +105,10 @@ async def test_stream_loop_emits_logs_from_all_containers(mocker: MockerFixture)
     stop_event.set()
     await stream_task
 
-    assert len(broadcaster.messages) == 1
-    log_message = broadcaster.messages[0]
+    # Filter for log messages (resource_usage messages are also broadcast)
+    log_messages = [m for m in broadcaster.messages if m["type"] == StreamMessageType.LOG.value]
+    assert len(log_messages) >= 1
+    log_message = log_messages[0]
     assert log_message["type"] == StreamMessageType.LOG.value
     log_lines = [entry["message"] for entry in log_message["data"]["lines"]]
     assert log_lines == ["main log", "init-setup log", "debugger log"]

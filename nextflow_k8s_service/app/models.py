@@ -124,6 +124,8 @@ class LogChunk(BaseModel):
 class StreamMessageType(str, Enum):
     STATUS = "status"
     PROGRESS = "progress"
+    TASK_PROGRESS = "task_progress"
+    RESOURCE_USAGE = "resource_usage"
     LOG = "log"
     COMPLETE = "complete"
     ERROR = "error"
@@ -134,3 +136,39 @@ class StreamMessage(BaseModel):
     data: Dict[str, Any]
     timestamp: datetime
     run_id: str
+
+
+class TaskStatus(str, Enum):
+    """Status of individual Nextflow tasks."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class NextflowTask(BaseModel):
+    """Individual Nextflow task progress information."""
+
+    task_id: str = Field(..., description="Nextflow task ID (e.g., 'db/820120')")
+    name: str = Field(..., description="Task name (e.g., 'GENERATE', 'ANALYZE', 'REPORT')")
+    tag: Optional[str] = Field(None, description="Task tag/label (e.g., '(2)' for batch 2)")
+    completed: int = Field(0, description="Number of task instances completed")
+    total: int = Field(1, description="Total number of task instances")
+    status: TaskStatus = Field(TaskStatus.PENDING, description="Current task status")
+
+
+class TaskProgressData(BaseModel):
+    """Data payload for task_progress messages."""
+
+    tasks: list[NextflowTask] = Field(default_factory=list, description="List of tracked tasks")
+    executor_info: Optional[str] = Field(None, description="Executor info (e.g., 'k8s (11)')")
+
+
+class ResourceUsageData(BaseModel):
+    """Data payload for resource_usage messages."""
+
+    active_pods: int = Field(0, description="Currently running pods")
+    total_pods_spawned: int = Field(0, description="Total pods created during run")
+    cpu_usage: Optional[str] = Field(None, description="CPU usage (e.g., '4.5 cores')")
+    memory_usage: Optional[str] = Field(None, description="Memory usage (e.g., '8.2 GB')")

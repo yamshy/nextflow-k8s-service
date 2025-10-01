@@ -10,7 +10,14 @@ from typing import Any, Optional
 
 from ..config import Settings
 from ..kubernetes.jobs import get_pod_log_stream, list_job_pods
-from ..models import StreamMessageType
+from ..models import NextflowTask, StreamMessageType, TaskStatus
+from ..parsers.nextflow_log_parser import (
+    extract_pod_count,
+    is_pipeline_complete,
+    is_pipeline_startup,
+    parse_executor_info,
+    parse_task_progress,
+)
 from ..utils.broadcaster import Broadcaster
 from .state_store import StateStore
 
@@ -40,6 +47,12 @@ class LogStreamer:
         self._last_log_broadcast: dict[str, datetime] = {}
         self._last_progress_broadcast: dict[str, datetime] = {}
         self._last_status_broadcast: dict[str, datetime] = {}
+        self._last_task_progress_broadcast: dict[str, datetime] = {}
+        self._last_resource_broadcast: dict[str, datetime] = {}
+        # Track task state per run: run_id -> task_key -> NextflowTask
+        self._task_states: dict[str, dict[str, NextflowTask]] = {}
+        # Track resource metrics per run: run_id -> metrics
+        self._resource_metrics: dict[str, dict[str, Any]] = {}
 
     async def start(self, run_id: str, job_name: str) -> None:
         async with self._lock:
@@ -63,6 +76,10 @@ class LogStreamer:
             self._last_log_broadcast.pop(run_id, None)
             self._last_progress_broadcast.pop(run_id, None)
             self._last_status_broadcast.pop(run_id, None)
+            self._last_task_progress_broadcast.pop(run_id, None)
+            self._last_resource_broadcast.pop(run_id, None)
+            self._task_states.pop(run_id, None)
+            self._resource_metrics.pop(run_id, None)
             self._log_cursors.clear()
         if stop_event:
             stop_event.set()
@@ -140,6 +157,21 @@ class LogStreamer:
                                 }
                             )
                             preview_lines.append(f"[{pod_name}/{container_name}] {message}")
+
+                            # Parse and track task progress
+                            task = parse_task_progress(message)
+                            if task:
+                                await self._update_task_state(run_id, task)
+
+                            # Parse and track executor/resource info
+                            executor_info = parse_executor_info(message)
+                            if executor_info:
+                                executor_type, active_pods = executor_info
+                                await self._update_resource_metrics(
+                                    run_id, active_pods=active_pods, executor_info=f"{executor_type} ({active_pods})"
+                                )
+
+                            # Keep legacy progress parsing for backward compatibility
                             update = self._parse_progress_line(message)
                             if update:
                                 completed_processes, total_processes, status = update
@@ -176,6 +208,12 @@ class LogStreamer:
 
                 if pending_lines:
                     pending_lines = await self._flush_logs(run_id, pending_lines)
+
+                # Broadcast task progress if state changed
+                await self._broadcast_task_progress(run_id)
+
+                # Broadcast resource usage periodically
+                await self._broadcast_resource_usage(run_id, len(pods))
 
                 await self._sleep(stop_event)
         except Exception:  # pragma: no cover - ensure we log unexpected failures
@@ -271,6 +309,119 @@ class LogStreamer:
                 "run_id": run_id,
             }
         )
+
+    async def _update_task_state(self, run_id: str, task: NextflowTask) -> None:
+        """Update the internal task state tracker.
+
+        Merges new task information with existing state, preserving progress.
+        """
+        if run_id not in self._task_states:
+            self._task_states[run_id] = {}
+
+        # Use (name, tag) as the key to track tasks across updates
+        # If no tag, use just the name
+        task_key = f"{task.name}:{task.tag}" if task.tag else task.name
+
+        existing = self._task_states[run_id].get(task_key)
+        if existing:
+            # Merge with existing task state
+            # Update completed count if it increased
+            if task.completed > existing.completed:
+                existing.completed = task.completed
+            # Update total if it changed
+            if task.total > existing.total:
+                existing.total = task.total
+            # Update status if it progressed
+            if task.status != existing.status:
+                # Only update if status is "progressing" (pending -> running -> completed)
+                status_order = {
+                    TaskStatus.PENDING: 0,
+                    TaskStatus.RUNNING: 1,
+                    TaskStatus.COMPLETED: 2,
+                    TaskStatus.FAILED: 3,
+                }
+                if status_order.get(task.status, 0) > status_order.get(existing.status, 0):
+                    existing.status = task.status
+            # Update task_id if we didn't have one before
+            if task.task_id != "unknown" and existing.task_id == "unknown":
+                existing.task_id = task.task_id
+        else:
+            # New task - add to state
+            self._task_states[run_id][task_key] = task
+
+    async def _update_resource_metrics(
+        self, run_id: str, active_pods: Optional[int] = None, executor_info: Optional[str] = None
+    ) -> None:
+        """Update resource metrics for a run."""
+        if run_id not in self._resource_metrics:
+            self._resource_metrics[run_id] = {"active_pods": 0, "total_pods_spawned": 0, "executor_info": None}
+
+        metrics = self._resource_metrics[run_id]
+        if active_pods is not None:
+            metrics["active_pods"] = active_pods
+            # Track max pods spawned
+            if active_pods > metrics["total_pods_spawned"]:
+                metrics["total_pods_spawned"] = active_pods
+        if executor_info is not None:
+            metrics["executor_info"] = executor_info
+
+    async def _broadcast_task_progress(self, run_id: str) -> None:
+        """Broadcast task progress if state has changed since last broadcast."""
+        now = datetime.now(timezone.utc)
+        last_sent = self._last_task_progress_broadcast.get(run_id)
+
+        # Broadcast at most once per second
+        if last_sent and (now - last_sent) < timedelta(seconds=1):
+            return
+
+        tasks = self._task_states.get(run_id, {})
+        if not tasks:
+            return
+
+        # Get executor info from resource metrics
+        metrics = self._resource_metrics.get(run_id, {})
+        executor_info = metrics.get("executor_info")
+
+        # Convert task dict to sorted list for consistent ordering
+        task_list = sorted(tasks.values(), key=lambda t: (t.name, t.tag or ""))
+
+        await self._broadcast(
+            run_id,
+            StreamMessageType.TASK_PROGRESS,
+            {
+                "tasks": [t.model_dump(mode="json") for t in task_list],
+                "executor_info": executor_info,
+            },
+        )
+        self._last_task_progress_broadcast[run_id] = now
+
+    async def _broadcast_resource_usage(self, run_id: str, current_pod_count: int) -> None:
+        """Broadcast resource usage metrics periodically."""
+        now = datetime.now(timezone.utc)
+        last_sent = self._last_resource_broadcast.get(run_id)
+
+        # Broadcast at most once every 3 seconds
+        if last_sent and (now - last_sent) < timedelta(seconds=3):
+            return
+
+        metrics = self._resource_metrics.get(run_id, {})
+        if not metrics:
+            # Initialize with current pod count
+            metrics = {
+                "active_pods": current_pod_count,
+                "total_pods_spawned": current_pod_count,
+            }
+            self._resource_metrics[run_id] = metrics
+
+        await self._broadcast(
+            run_id,
+            StreamMessageType.RESOURCE_USAGE,
+            {
+                "active_pods": metrics.get("active_pods", current_pod_count),
+                "total_pods_spawned": metrics.get("total_pods_spawned", current_pod_count),
+            },
+        )
+        self._last_resource_broadcast[run_id] = now
 
     async def _sleep(self, stop_event: asyncio.Event) -> None:
         try:

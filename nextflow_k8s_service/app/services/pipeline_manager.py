@@ -22,6 +22,7 @@ from ..models import (
     RunStatus,
     StreamMessageType,
 )
+from ..parsers.demo_results import parse_report_json
 from ..utils.broadcaster import Broadcaster
 from .log_streamer import LogStreamer
 from .state_store import StateStore
@@ -274,14 +275,40 @@ class PipelineManager:
         if run_info and run_info.started_at and run_info.finished_at:
             duration_seconds = (run_info.finished_at - run_info.started_at).total_seconds()
 
+        # Try to parse demo metrics if this was a successful demo run
+        demo_metrics = None
+        if terminal_status == RunStatus.SUCCEEDED and duration_seconds:
+            # Try to find and parse the report.json file
+            # The report path follows the pattern: /workspace/results/{workflow.runName}/report.json
+            # Nextflow uses the job name as the workflow.runName
+            report_path = f"/workspace/results/{job_name}/report.json"
+            try:
+                # Get resource metrics from log streamer
+                resource_metrics = self._log_streamer._resource_metrics.get(run_id, {})
+                worker_pods_spawned = resource_metrics.get("total_pods_spawned", 0)
+
+                demo_metrics_obj = parse_report_json(
+                    report_path=report_path,
+                    execution_time_seconds=duration_seconds,
+                    worker_pods_spawned=worker_pods_spawned,
+                )
+                if demo_metrics_obj:
+                    demo_metrics = demo_metrics_obj.model_dump(mode="json")
+            except Exception:  # pragma: no cover - defensive
+                logger.debug("Could not parse demo metrics for run %s", run_id)
+
+        complete_data: dict[str, object] = {
+            "status": terminal_status.value,
+            "run": run_info.model_dump(mode="json") if run_info else None,
+            "duration_seconds": duration_seconds,
+        }
+        if demo_metrics:
+            complete_data["metrics"] = demo_metrics
+
         await self._broadcast_message(
             run_id=run_id,
             message_type=StreamMessageType.COMPLETE,
-            data={
-                "status": terminal_status.value,
-                "run": run_info.model_dump(mode="json") if run_info else None,
-                "duration_seconds": duration_seconds,
-            },
+            data=complete_data,
         )
 
         async with self._task_lock:
