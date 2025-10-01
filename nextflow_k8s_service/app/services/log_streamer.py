@@ -309,14 +309,18 @@ class LogStreamer:
         timestamp: Optional[datetime] = None,
     ) -> None:
         ts = timestamp or datetime.now(timezone.utc)
-        await self._broadcaster.broadcast(
-            {
-                "type": message_type.value,
-                "data": data,
-                "timestamp": ts.isoformat(),
-                "run_id": run_id,
-            }
-        )
+        message = {
+            "type": message_type.value,
+            "data": data,
+            "timestamp": ts.isoformat(),
+            "run_id": run_id,
+        }
+        try:
+            logger.debug("Broadcasting %s message for run %s", message_type.value, run_id)
+            await self._broadcaster.broadcast(message)
+            logger.debug("Broadcast of %s completed", message_type.value)
+        except Exception as exc:
+            logger.exception("Failed to broadcast %s message for run %s: %s", message_type.value, run_id, exc)
 
     async def _update_task_state(self, run_id: str, task: NextflowTask) -> None:
         """Update the internal task state tracker.
@@ -396,15 +400,23 @@ class LogStreamer:
         # Convert task dict to sorted list for consistent ordering
         task_list = sorted(tasks.values(), key=lambda t: (t.name, t.tag or ""))
 
-        await self._broadcast(
-            run_id,
-            StreamMessageType.TASK_PROGRESS,
-            {
-                "tasks": [t.model_dump(mode="json") for t in task_list],
-                "executor_info": executor_info,
-            },
-        )
-        self._last_task_progress_broadcast[run_id] = now
+        try:
+            # Serialize tasks to JSON-compatible dicts
+            serialized_tasks = [t.model_dump(mode="json") for t in task_list]
+            logger.debug("Serialized %d tasks for broadcast", len(serialized_tasks))
+            
+            await self._broadcast(
+                run_id,
+                StreamMessageType.TASK_PROGRESS,
+                {
+                    "tasks": serialized_tasks,
+                    "executor_info": executor_info,
+                },
+            )
+            self._last_task_progress_broadcast[run_id] = now
+            logger.debug("task_progress broadcast completed successfully")
+        except Exception as exc:
+            logger.exception("Failed to broadcast task_progress for run %s: %s", run_id, exc)
 
     async def _broadcast_resource_usage(self, run_id: str, current_pod_count: int) -> None:
         """Broadcast resource usage metrics periodically."""
