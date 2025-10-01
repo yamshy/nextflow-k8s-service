@@ -11,7 +11,8 @@ from slowapi import Limiter
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
-from .api.routes import router as pipeline_router
+from .api.metrics import router as metrics_router
+from .api.routes import demo_router, router as pipeline_router
 from .api.websocket import router as websocket_router
 from .config import Settings, get_settings
 from .services.log_streamer import LogStreamer
@@ -94,6 +95,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Demo-specific routers for portfolio showcase
+    app.include_router(demo_router, prefix="/api/v1")
+    app.include_router(metrics_router, prefix="/api/v1")
+    # Legacy pipeline router for backward compatibility
     app.include_router(pipeline_router, prefix="/api/v1")
     app.include_router(websocket_router, prefix="/api/v1")
 

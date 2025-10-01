@@ -18,6 +18,11 @@ RUN uv sync --no-dev --frozen --no-install-project
 
 COPY nextflow_k8s_service ./nextflow_k8s_service
 
+# Copy demo workflows into the image
+# These will be mounted in jobs via ConfigMap, but having them in the image
+# provides a backup and allows for direct file access if needed
+COPY nextflow_k8s_service/workflows /app/workflows
+
 RUN uv sync --no-dev --frozen
 
 RUN chown -R 1001:1001 /app
