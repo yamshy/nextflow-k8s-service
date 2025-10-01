@@ -126,6 +126,7 @@ class StreamMessageType(str, Enum):
     PROGRESS = "progress"
     TASK_PROGRESS = "task_progress"
     RESOURCE_USAGE = "resource_usage"
+    WORKFLOW_PROGRESS = "workflow_progress"  # New unified progress message
     LOG = "log"
     COMPLETE = "complete"
     ERROR = "error"
